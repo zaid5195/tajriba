@@ -1,0 +1,16 @@
+// غيّر هذه القائمة لتخصيص المطعم: الاسم، التصنيف، الوصف والسعر.
+const dishes=[
+{id:1,name:"فتّة الحمص",cat:"مقبلات",desc:"حمص كريمي، خبز محمّص، لبن وصنوبر.",price:7.5,emoji:"🥣"},
+{id:2,name:"سلطة الحديقة",cat:"مقبلات",desc:"خضروات طازجة، رمان، جبن أبيض.",price:8,emoji:"🥗"},
+{id:3,name:"ساندويتش الزعتر",cat:"رئيسية",desc:"زعتر بلدي وزيت زيتون وخبز طازج.",price:9.5,emoji:"🥙"},
+{id:4,name:"طبق المشاوي",cat:"رئيسية",desc:"تشكيلة مشوية مع الأرز والسلطة.",price:16,emoji:"🍢"},
+{id:5,name:"مناقيش الجبنة",cat:"رئيسية",desc:"عجينة مخبوزة مع جبنة مختارة.",price:8.5,emoji:"🫓"},
+{id:6,name:"كنافة دافئة",cat:"حلويات",desc:"طبقات مقرمشة وجبنة حلوة وقطر.",price:6,emoji:"🍮"},
+{id:7,name:"مهلبية الفستق",cat:"حلويات",desc:"مهلبية ناعمة مع فستق مجروش.",price:5.5,emoji:"🍨"},
+{id:8,name:"ليمون ونعناع",cat:"مشروبات",desc:"ليمون طازج ونعناع ومكعبات ثلج.",price:4,emoji:"🍋"},
+{id:9,name:"قهوة عربية",cat:"مشروبات",desc:"قهوة بالهيل تُقدّم بفنجان صغير.",price:3,emoji:"☕"}];
+const $=id=>document.getElementById(id), categories=["الكل",...new Set(dishes.map(d=>d.cat))];
+let category="الكل",onlyFav=false,favorites=new Set(JSON.parse(localStorage.getItem("sufra-favs")||"[]"));
+function renderCategories(){$("categories").replaceChildren(...categories.map(c=>{const b=document.createElement("button");b.className="category"+(c===category?" active":"");b.textContent=c;b.setAttribute("aria-pressed",String(c===category));b.onclick=()=>{category=c;renderCategories();render()};return b}))}
+function render(){const q=$("search").value.trim().toLocaleLowerCase("ar");const shown=dishes.filter(d=>(category==="الكل"||d.cat===category)&&(!onlyFav||favorites.has(d.id))&&[d.name,d.cat,d.desc].join(" ").toLocaleLowerCase("ar").includes(q));$("items").replaceChildren(...shown.map(d=>{const a=document.createElement("article");a.className="item";const top=document.createElement("div");top.className="itemtop";const emoji=document.createElement("span");emoji.className="emoji";emoji.textContent=d.emoji;const heart=document.createElement("button");heart.className="heart";heart.textContent=favorites.has(d.id)?"♥":"♡";heart.setAttribute("aria-label","تبديل المفضلة "+d.name);heart.onclick=()=>{favorites.has(d.id)?favorites.delete(d.id):favorites.add(d.id);localStorage.setItem("sufra-favs",JSON.stringify([...favorites]));render()};top.append(emoji,heart);const cat=document.createElement("div");cat.className="cat";cat.textContent=d.cat;const row=document.createElement("div");row.className="itemrow";const h=document.createElement("h3");h.textContent=d.name;const p=document.createElement("span");p.className="price";p.textContent=d.price.toFixed(2)+" €";row.append(h,p);const desc=document.createElement("p");desc.textContent=d.desc;a.append(top,cat,row,desc);return a}));$("empty").hidden=shown.length>0}
+$("search").addEventListener("input",render);$("favs").onclick=()=>{onlyFav=!onlyFav;$("favs").setAttribute("aria-pressed",String(onlyFav));$("favs").textContent=onlyFav?"♥ المفضلة فقط":"♡ المفضلة";render()};$("print").onclick=()=>window.print();renderCategories();render();
