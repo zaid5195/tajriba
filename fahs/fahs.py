@@ -11,6 +11,7 @@ import json
 import shutil
 import datetime
 import textwrap
+import shlex
 import subprocess
 
 VERSION = "1.0"
@@ -103,8 +104,34 @@ def run(cmd, timeout=20):
         return ""
 
 
+ADB = None  # serial ديال الجهاز إلا كان ADB متصل
+
+
+def detect_adb():
+    """كنقلبو على ADB متصل بالتيليفون راسو (localhost)."""
+    global ADB
+    if "--no-adb" in sys.argv or not shutil.which("adb"):
+        return
+    out = run("adb devices 2>/dev/null", 10)
+    devs = [l.split()[0] for l in out.splitlines()[1:]
+            if l.strip().endswith("device")]
+    local = [d for d in devs if d.startswith(("localhost", "127.0.0.1"))]
+    pick = (local or [d for d in devs if d.startswith("emulator-")] or devs[:1])
+    if pick:
+        test = run(f"adb -s {pick[0]} shell echo ok 2>/dev/null", 10)
+        if test == "ok":
+            ADB = pick[0]
+
+
+def sh(cmd, timeout=20):
+    """كنشغلو الأمر عبر ADB (صلاحيات أكبر) إلا كان متصل، ولا عادي."""
+    if ADB:
+        return run(f"adb -s {ADB} shell {shlex.quote(cmd)}", timeout + 10)
+    return run(cmd, timeout)
+
+
 def prop(name):
-    return run(f"getprop {name}", 5)
+    return sh(f"getprop {name}", 5)
 
 
 _settings_ok = None
@@ -115,7 +142,7 @@ def setting(ns, key):
     global _settings_ok
     if _settings_ok is False:
         return None
-    v = run(f"settings get {ns} {key} 2>/dev/null", 10)
+    v = sh(f"settings get {ns} {key} 2>/dev/null", 10)
     low = v.lower()
     if (not v or "xception" in v or "not found" in low or "failure" in low
             or "failed" in low or low.startswith("cmd:") or "error" in low):
@@ -124,6 +151,15 @@ def setting(ns, key):
         return None
     _settings_ok = True
     return None if v == "null" else v
+
+
+def read_net(path):
+    """/proc/net عبر ADB كيبين الاتصالات ديال كاع التطبيقات."""
+    if ADB:
+        out = sh(f"cat {path} 2>/dev/null", 10)
+        if out:
+            return out
+    return read(path)
 
 
 def read(path):
@@ -222,7 +258,7 @@ PACKAGES = {}  # name -> {"uid": .., "installer": ..}
 
 
 def load_packages():
-    out = run("pm list packages -3 -i -U 2>/dev/null", 40)
+    out = sh("pm list packages -3 -i -U 2>/dev/null", 40)
     for line in out.splitlines():
         m = re.search(r"package:(\S+)", line)
         if not m:
@@ -240,7 +276,7 @@ UID_MAP = {}
 
 
 def load_uid_map():
-    out = run("pm list packages -U 2>/dev/null", 40)
+    out = sh("pm list packages -U 2>/dev/null", 40)
     for line in out.splitlines():
         m = re.search(r"package:(\S+)\s+uid:(\d+)", line)
         if m:
@@ -301,7 +337,7 @@ def check_root():
     elif vb:
         info(f"حالة Verified Boot: {vb}")
 
-    se = run("getenforce 2>/dev/null", 5)
+    se = sh("getenforce 2>/dev/null", 5)
     if se == "Enforcing":
         ok("SELinux خدام (Enforcing)")
     elif se == "Permissive":
@@ -314,7 +350,7 @@ def listening_ports():
     """البورتات لي فحالة LISTEN، ولا None إلا ما قدرناش نقراو."""
     ports, ok_read = set(), False
     for f in ("/proc/net/tcp", "/proc/net/tcp6"):
-        data = read(f)
+        data = read_net(f)
         if not data:
             continue
         ok_read = True
@@ -345,8 +381,9 @@ def check_adb():
         except ValueError:
             tport = -1
         if ports is not None and tport in ports:
-            bad(f"ADB عبر الشبكة شاعل ومفتوح دابا على البورت {tcp}!",
-                "أي واحد معاك فنفس الويفي يقدر يتحكم فالتيليفون. إلا ما نتا لي شعلتيه، طفي التيليفون وشعلو باش يتسد.")
+            (warn if ADB else bad)(
+                f"ADB عبر الشبكة شاعل ومفتوح دابا على البورت {tcp}!",
+                "أي واحد معاك فنفس الويفي يقدر يتحكم فالتيليفون. ملي تسالي الفحص طفي «تصحيح الأخطاء اللاسلكي»، ولا طفي التيليفون وشعلو باش يتسد.")
         elif ports is not None:
             info(f"ADB عبر الشبكة مضبوط على البورت {tcp} ولكن ما مفتوحش دابا")
         else:
@@ -452,7 +489,7 @@ def check_apps():
                     warn(f"{p} منصّب من برا وكيقرا الإشعارات",
                          "هادا يقدر يسرق أكواد التحقق (OTP). تأكد منو.")
 
-    admin = run("dumpsys device_policy 2>/dev/null", 15)
+    admin = sh("dumpsys device_policy 2>/dev/null", 20)
     if admin and "Permission Denial" not in admin:
         admins = sorted(set(re.findall(r"ComponentInfo\{([^/}]+)/", admin)))
         third = [a for a in admins if a in PACKAGES]
@@ -491,7 +528,7 @@ def check_network():
     listen, estab = [], {}
     readable = False
     for f in ("/proc/net/tcp", "/proc/net/tcp6"):
-        data = read(f)
+        data = read_net(f)
         if not data:
             continue
         readable = True
@@ -774,6 +811,11 @@ def main():
         print("fahs [--no-color]")
         return
     banner()
+    detect_adb()
+    if ADB:
+        show(f"وضع ADB خدام ({ADB}) — الفحص غادي يكون كامل", "ok")
+    else:
+        show("وضع عادي (بلا ADB) — شي فحوصات يقدرو يكونو ناقصين", "info")
     load_packages()
     load_uid_map()
     for step in (check_device, check_root, check_adb, check_apps,
