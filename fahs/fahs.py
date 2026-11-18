@@ -12,6 +12,8 @@ import shutil
 import datetime
 import textwrap
 import shlex
+import socket
+import concurrent.futures as cf
 import subprocess
 
 VERSION = "2.0"
@@ -719,6 +721,188 @@ def save_state(score):
         pass
 
 
+# ───────────────────────── فحص شبكة الويفي ─────────────────────────
+PORT_HINTS = {
+    21: ("FTP", "warn"), 22: ("SSH", "info"), 23: ("Telnet", "bad"),
+    53: ("DNS", "info"), 80: ("صفحة ويب", "info"), 443: ("صفحة ويب", "info"),
+    139: ("مشاركة ملفات Windows", "warn"), 445: ("مشاركة ملفات Windows", "warn"),
+    554: ("كاميرا (RTSP)", "warn"), 1883: ("جهاز ذكي (MQTT)", "info"),
+    3389: ("تحكم عن بعد Windows", "warn"), 5555: ("ADB أندرويد مفتوح", "bad"),
+    5900: ("VNC تحكم فالشاشة", "warn"), 7000: ("AirPlay", "info"),
+    8008: ("Chromecast / تلفزة", "info"), 8080: ("صفحة ويب", "info"),
+    8009: ("Chromecast / تلفزة", "info"), 9100: ("طابعة", "info"),
+    62078: ("آيفون / آيباد", "info"),
+}
+SEC_TYPES = {"0": "مفتوح بلا كلمة سر", "1": "WEP", "2": "WPA2",
+             "3": "WPA2-Enterprise", "4": "WPA3", "5": "WPA3-Enterprise",
+             "6": "OWE", "7": "WAPI"}
+
+
+def my_ip():
+    try:
+        sk = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sk.connect(("8.8.8.8", 53))
+        ip = sk.getsockname()[0]
+        sk.close()
+        return ip
+    except Exception:
+        return None
+
+
+def wifi_info():
+    w = {"ip": None, "gw": None, "ssid": None, "sec": None}
+    out = sh("ip -4 addr show wlan0 2>/dev/null", 8)
+    m = re.search(r"inet (\d+\.\d+\.\d+\.\d+)", out)
+    w["ip"] = m.group(1) if m else my_ip()
+    out = sh("ip route get 8.8.8.8 2>/dev/null", 8)
+    m = re.search(r"via (\d+\.\d+\.\d+\.\d+)", out)
+    if m:
+        w["gw"] = m.group(1)
+    if shutil.which("termux-wifi-connectioninfo"):
+        try:
+            j = json.loads(run("termux-wifi-connectioninfo", 8))
+            w["ssid"] = j.get("ssid")
+            w["ip"] = w["ip"] or j.get("ip")
+        except Exception:
+            pass
+    if ADB:
+        st = sh("cmd wifi status 2>/dev/null", 10)
+        m = re.search(r'SSID: "?([^",]+)"?', st)
+        if m and "unknown" not in m.group(1):
+            w["ssid"] = m.group(1)
+        m = re.search(r"Security type: (\d+)", st)
+        if m:
+            w["sec"] = m.group(1)
+    if w["ip"] and not w["gw"]:
+        w["gw"] = ".".join(w["ip"].split(".")[:3] + ["1"])
+    return w
+
+
+def alive(ip):
+    if run(f"ping -c 1 -W 1 {ip} >/dev/null 2>&1 && echo up", 3) == "up":
+        return True
+    for port in (80, 443, 62078, 8008):
+        try:
+            with socket.create_connection((ip, port), 0.3):
+                return True
+        except ConnectionRefusedError:
+            return True       # الجهاز موجود ولكن البورت مسدود
+        except Exception:
+            pass
+    return False
+
+
+def open_ports(ip):
+    found = []
+    for port in PORT_HINTS:
+        try:
+            with socket.create_connection((ip, port), 0.4):
+                found.append(port)
+        except Exception:
+            pass
+    return found
+
+
+def hostname(ip):
+    try:
+        return socket.gethostbyaddr(ip)[0].split(".")[0]
+    except Exception:
+        return ""
+
+
+def check_wifi():
+    header("فحص شبكة الويفي")
+    w = wifi_info()
+    if not w["ip"] or w["ip"].startswith("127."):
+        warn("ما لقيتش اتصال بالويفي", "تأكد أنك متصل بالويفي وعاود.")
+        return
+    if w["ssid"]:
+        info(f"الشبكة: {w['ssid']}")
+    info(f"الـ IP ديالك: {w['ip']} — الراوتر: {w['gw']}")
+
+    if w["sec"] is not None:
+        name = SEC_TYPES.get(w["sec"], w["sec"])
+        if w["sec"] in ("0", "1"):
+            bad(f"الويفي {name} — أي واحد قريب يقدر يشوف شنو كدير",
+                "بدّل التشفير فالراوتر لـ WPA2 ولا WPA3 وحط كلمة سر قوية.")
+        elif w["sec"] in ("4", "5"):
+            ok(f"تشفير الويفي: {name} (الأقوى)")
+        else:
+            ok(f"تشفير الويفي: {name}")
+
+    base = ".".join(w["ip"].split(".")[:3])
+    targets = [f"{base}.{i}" for i in range(1, 255)]
+    rline(f"كنقلب على الأجهزة فـ {base}.0/24 ... (حتى 30 ثانية)", D)
+    with cf.ThreadPoolExecutor(64) as ex:
+        live = [ip for ip, up in zip(targets, ex.map(alive, targets)) if up]
+
+    neigh = {}
+    for line in sh("ip neigh 2>/dev/null", 8).splitlines():
+        m = re.match(r"(\d+\.\d+\.\d+\.\d+) .*lladdr ([0-9a-f:]{17})", line)
+        if m:
+            neigh[m.group(1)] = m.group(2)
+    for ip in neigh:
+        if ip.startswith(base + ".") and ip not in live:
+            live.append(ip)
+    if w["ip"] not in live:
+        live.append(w["ip"])
+    live.sort(key=lambda x: int(x.split(".")[-1]))
+
+    with cf.ThreadPoolExecutor(32) as ex:
+        ports = dict(zip(live, ex.map(open_ports, live)))
+        names = dict(zip(live, ex.map(hostname, live)))
+
+    info(f"لقيت {len(live)} جهاز متصلين بالويفي:")
+    dangers = []
+    for ip in live:
+        tags = []
+        if ip == w["ip"]:
+            tags.append("التيليفون ديالك")
+        if ip == w["gw"]:
+            tags.append("الراوتر")
+        if names.get(ip) and names[ip] != ip:
+            tags.append(names[ip])
+        mac = neigh.get(ip, "")
+        if mac and int(mac.split(":")[0], 16) & 2:
+            tags.append("MAC عشوائي — غالباً تيليفون")
+        kinds = sorted({PORT_HINTS[p][0] for p in ports[ip]})
+        line = f"{ip}  " + " | ".join(tags + kinds)
+        sub(line)
+        for p in ports[ip]:
+            lvl = PORT_HINTS[p][1]
+            if lvl != "info" and ip != w["ip"]:
+                dangers.append((lvl, ip, p, PORT_HINTS[p][0], ip == w["gw"]))
+
+    for lvl, ip, p, what, is_gw in dangers:
+        who = "الراوتر" if is_gw else f"الجهاز {ip}"
+        if p == 5555:
+            bad(f"{who} فيه ADB مفتوح (البورت 5555)",
+                "أي واحد فالويفي يقدر يتحكم فهاد الجهاز (تلفزة ولا تيليفون). طفي تصحيح الأخطاء فيه.")
+        elif p == 23:
+            bad(f"{who} فيه Telnet مفتوح (البورت 23)",
+                "Telnet قديم وبلا تشفير، والفيروسات كتخترق بيه الراوترات والكاميرات. سدو من إعدادات الجهاز.")
+        else:
+            (bad if lvl == "bad" else warn)(
+                f"{who}: {what} مفتوح (البورت {p})",
+                "إلا ما محتاجوش، سدو من إعدادات الجهاز. والكاميرات بدّل ليهم كلمة السر الأصلية.")
+
+    gw_mac = neigh.get(w["gw"])
+    if gw_mac:
+        same = [ip for ip, mac in neigh.items() if mac == gw_mac and ip != w["gw"]]
+        if same:
+            bad(f"جهاز آخر ({', '.join(same)}) عندو نفس MAC ديال الراوتر!",
+                "هادي علامة ديال ARP spoofing: شي حد فالويفي كيتنصت على الانترنت ديالك. "
+                "قطع الويفي، وبدّل كلمة السر ديال الراوتر.")
+        else:
+            ok("ما كاين حتى علامة ديال التنصت على الشبكة (ARP spoofing)")
+    elif not ADB:
+        info("باش نفحص التنصت (ARP spoofing) خصني وضع ADB")
+
+    if not dangers:
+        ok("حتى جهاز فالويفي ما فيه بورت خطير مفتوح")
+    info("إلا لقيتي جهاز ما عارفوش، بدّل كلمة السر ديال الويفي من الراوتر.")
+
+
 # ───────────────────────── 5. الشبكة ─────────────────────────
 def hex_ip(h):
     if len(h) == 8:
@@ -1090,8 +1274,9 @@ MENU = [
     ("1", "فحص كامل", "full"),
     ("2", "فحص سريع (بلا الملفات)", "quick"),
     ("3", "التطبيقات والصلاحيات بوحدهم", "apps"),
-    ("4", "مسح تطبيق", "uninstall"),
-    ("5", "طفي ADB وتصحيح الأخطاء", "adboff"),
+    ("4", "فحص شبكة الويفي", "wifi"),
+    ("5", "مسح تطبيق", "uninstall"),
+    ("6", "طفي ADB وتصحيح الأخطاء", "adboff"),
     ("0", "خروج", "exit"),
 ]
 
@@ -1114,6 +1299,7 @@ HELP = """fahs — فحص أمان التيليفون
   fahs --full     فحص كامل مباشرة
   fahs --quick    فحص سريع
   fahs --apps     التطبيقات والصلاحيات
+  fahs --wifi     فحص شبكة الويفي
   --no-color      بلا ألوان
   --no-adb        ما تستعملش ADB
 
@@ -1137,7 +1323,8 @@ def main():
         show("وضع عادي (بلا ADB) — شي فحوصات ناقصين. شوف fahs --help", "info")
 
     mode = next((m for f, m in (("--full", "full"), ("--quick", "quick"),
-                                ("--apps", "apps")) if f in sys.argv), None)
+                                ("--apps", "apps"), ("--wifi", "wifi"))
+                 if f in sys.argv), None)
     interactive = sys.stdin.isatty() and mode is None
     if mode is None:
         mode = menu() if interactive else "full"
@@ -1163,6 +1350,7 @@ def main():
         "quick": (check_device, check_root, check_adb, check_apps,
                   check_changes, check_network, check_termux),
         "apps": (check_apps, check_permissions, check_changes),
+        "wifi": (check_wifi,),
     }[mode]
     STEP["total"] = len(steps)
     for step in steps:
@@ -1174,7 +1362,8 @@ def main():
             info(f"وقع مشكل فهاد الفحص: {e}")
     summary()
     save_report()
-    save_state(score())
+    if mode != "wifi":
+        save_state(score())
     if interactive:
         uninstall_menu()
         adb_off_menu()
