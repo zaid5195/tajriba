@@ -50,11 +50,31 @@ ICONS = {"ok": "🟢", "warn": "🟡", "bad": "🔴", "info": "🔵", "sub": "  
 COLORS = {"ok": G, "warn": Y, "bad": R, "info": C, "sub": W}
 
 
+EVENTS = []          # النتائج مرتبة (للموقع): [{title, items: [...]}]
+WEB = False          # واش خدامين من الموقع
+
+
+def _event(text, kind):
+    if not EVENTS:
+        EVENTS.append({"title": "", "items": []})
+    items = EVENTS[-1]["items"]
+    if kind == "sub" and items:
+        items[-1]["subs"].append(text)
+        return items[-1]
+    item = {"kind": "info" if kind == "sub" else kind, "text": text,
+            "subs": [], "advice": ""}
+    items.append(item)
+    return item
+
+
 def show(text, kind="info"):
     """كنطبع سطر عربي مقسوم على عرض الشاشة باش ما يتقلبش."""
     icon = ICONS[kind]
     color = COLORS[kind]
     REPORT.append(f"{icon} {text}")
+    item = _event(text, kind)
+    if WEB:
+        return item
     lines = textwrap.wrap(text, WIDTH - 5) or [""]
     for i, line in enumerate(lines):
         visual = _ar(line)
@@ -64,6 +84,7 @@ def show(text, kind="info"):
         pad = max(0, WIDTH - 1 - len(visual) - 3)
         # محاذاة لليمين بحال الكتابة العربية
         print(f"{color}{' ' * pad}{visual} {mark}{N}")
+    return item
 
 
 def ok(text):
@@ -74,13 +95,13 @@ def ok(text):
 def warn(text, advice=""):
     COUNTS["warn"] += 1
     FINDINGS.append(("warn", text, advice))
-    show(text, "warn")
+    show(text, "warn")["advice"] = advice
 
 
 def bad(text, advice=""):
     COUNTS["bad"] += 1
     FINDINGS.append(("bad", text, advice))
-    show(text, "bad")
+    show(text, "bad")["advice"] = advice
 
 
 def info(text):
@@ -96,6 +117,8 @@ STEP = {"i": 0, "total": 0}
 
 def rline(text, color=""):
     """سطر عربي محاذي لليمين."""
+    if WEB:
+        return
     v = _ar(text)
     print(f"{color}{' ' * max(0, WIDTH - 2 - len(v))}{v}{N}")
 
@@ -104,6 +127,12 @@ def header(title):
     title = re.sub(r"^\d+\.\s*", "", title)
     REPORT.append("")
     REPORT.append(f"=== {title} ===")
+    EVENTS.append({"title": title, "items": []})
+    if WEB:
+        if STEP["total"] and title != "الخلاصة":
+            STEP["i"] += 1
+        STEP["title"] = title
+        return
     print()
     if STEP["total"] and title != "الخلاصة":
         STEP["i"] += 1
@@ -661,7 +690,10 @@ def check_apps():
              "التطبيقات من برا Play Store هوما الطريق الأول للاختراق. مسح لي ما عارفوش.")
         for p in sorted(side)[:20]:
             sub(p)
-        if len(side) > 20:
+        if WEB:
+            for p in sorted(side)[20:]:
+                sub(p)
+        elif len(side) > 20:
             print(f"{D}{_ar(f'... و {len(side) - 20} آخرين (شوف التقرير)')}{N}")
             for p in sorted(side)[20:]:
                 REPORT.append(f"  • {p}")
@@ -1427,6 +1459,7 @@ MENU = [
     ("5", "مسح تطبيق", "uninstall"),
     ("6", "شعل وضع ADB (فحص كامل)", "adbsetup"),
     ("7", "طفي ADB وتصحيح الأخطاء", "adboff"),
+    ("8", "لوحة التحكم فالمتصفح 🌐", "web"),
     ("0", "خروج", "exit"),
 ]
 
@@ -1453,6 +1486,7 @@ HELP = """fahs — فحص أمان التيليفون
   --no-color      بلا ألوان
   --no-adb        ما تستعملش ADB
   --setup-adb     مساعد تشغيل ADB خطوة بخطوة
+  fahs --web      لوحة التحكم فالمتصفح
 
 وضع ADB (فحص كامل للتطبيقات والصلاحيات):
   pkg install android-tools
@@ -1461,7 +1495,44 @@ HELP = """fahs — فحص أمان التيليفون
 """
 
 
+STEPS = {
+    "full": ("check_device", "check_root", "check_adb", "check_apps", "check_permissions",
+             "check_changes", "check_network", "check_files", "check_termux", "check_health"),
+    "quick": ("check_device", "check_root", "check_adb", "check_apps",
+              "check_changes", "check_network", "check_termux"),
+    "apps": ("check_apps", "check_permissions", "check_changes"),
+    "wifi": ("check_wifi",),
+}
+
+
+def reset_state():
+    global _settings_ok
+    for coll in (REPORT, FINDINGS, EVENTS, PACKAGES, UID_MAP, PKG_INFO,
+                 STATE_NEW, DEVICE, RISKY):
+        coll.clear()
+    for k in COUNTS:
+        COUNTS[k] = 0
+    STEP.update(i=0, total=0, title="")
+    _settings_ok = None
+
+
+def run_steps(mode):
+    names = STEPS[mode]
+    STEP["total"] = len(names)
+    for name in names:
+        try:
+            globals()[name]()
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:  # حتى فحص ما يطيّح الأداة كاملة
+            info(f"وقع مشكل فهاد الفحص: {e}")
+
+
 def main():
+    if "--web" in sys.argv:
+        import fahs_web
+        fahs_web.serve(sys.modules[__name__])
+        return
     if "--help" in sys.argv or "-h" in sys.argv:
         for line in HELP.splitlines():
             print(_ar(line) if re.search(r"[\u0600-\u06FF]", line) else line)
@@ -1483,6 +1554,10 @@ def main():
     if mode is None:
         mode = menu() if interactive else "full"
     if mode == "exit":
+        return
+    if mode == "web":
+        import fahs_web
+        fahs_web.serve(sys.modules[__name__])
         return
     if mode == "adbsetup":
         adb_setup()
@@ -1507,22 +1582,7 @@ def main():
         adb_off_menu()
         return
 
-    steps = {
-        "full": (check_device, check_root, check_adb, check_apps, check_permissions,
-                 check_changes, check_network, check_files, check_termux, check_health),
-        "quick": (check_device, check_root, check_adb, check_apps,
-                  check_changes, check_network, check_termux),
-        "apps": (check_apps, check_permissions, check_changes),
-        "wifi": (check_wifi,),
-    }[mode]
-    STEP["total"] = len(steps)
-    for step in steps:
-        try:
-            step()
-        except KeyboardInterrupt:
-            raise
-        except Exception as e:  # حتى فحص ما يطيّح الأداة كاملة
-            info(f"وقع مشكل فهاد الفحص: {e}")
+    run_steps(mode)
     summary()
     save_report()
     if mode != "wifi":

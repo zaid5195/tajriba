@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1220">
+<title>فحص — لوحة التحكم</title>
+<style>
+:root{
+  --bg:#0b1220; --bg2:#111a2e; --card:#141f36; --card2:#1a2742; --line:#243354;
+  --tx:#e8eefc; --tx2:#9aa8c7; --tx3:#6b7a9c;
+  --ok:#22c55e; --warn:#f5b301; --bad:#ef4444; --info:#38bdf8; --acc:#6d8bff;
+  --okbg:rgba(34,197,94,.12); --warnbg:rgba(245,179,1,.12); --badbg:rgba(239,68,68,.12); --infobg:rgba(56,189,248,.10);
+  --r:18px; --sh:0 10px 30px rgba(0,0,0,.35);
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#f3f6fc; --bg2:#e9eef8; --card:#ffffff; --card2:#f4f7fd; --line:#dde4f2;
+    --tx:#0f1a33; --tx2:#4c5a7a; --tx3:#8592ad; --sh:0 8px 24px rgba(20,40,90,.08);
+  }
+}
+:root[data-theme="light"]{
+  --bg:#f3f6fc; --bg2:#e9eef8; --card:#ffffff; --card2:#f4f7fd; --line:#dde4f2;
+  --tx:#0f1a33; --tx2:#4c5a7a; --tx3:#8592ad; --sh:0 8px 24px rgba(20,40,90,.08);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--tx)}
+body{font-family:"Segoe UI",Tahoma,"Noto Sans Arabic","Noto Naskh Arabic",system-ui,sans-serif;
+  font-size:15px;line-height:1.6;padding-bottom:84px;min-height:100vh}
+code,.mono{font-family:ui-monospace,Menlo,Consolas,monospace;direction:ltr;unicode-bidi:isolate;font-size:.86em}
+button{font:inherit;color:inherit;border:0;cursor:pointer}
+.wrap{max-width:640px;margin:0 auto;padding:0 16px}
+
+/* top bar */
+.top{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 88%,transparent);
+  backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;align-items:center;justify-content:space-between;height:58px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:19px}
+.logo{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;
+  background:linear-gradient(135deg,var(--acc),#22d3ee);color:#fff}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:99px;
+  font-size:12.5px;font-weight:600;background:var(--card2);color:var(--tx2);border:1px solid var(--line)}
+.chip .dot{width:8px;height:8px;border-radius:50%;background:var(--tx3)}
+.chip.on{color:var(--ok);background:var(--okbg);border-color:transparent}
+.chip.on .dot{background:var(--ok);box-shadow:0 0 0 3px rgba(34,197,94,.25)}
+
+/* cards */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  padding:18px;margin:14px 0;box-shadow:var(--sh)}
+.card h2{font-size:16px;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+.muted{color:var(--tx2)} .small{font-size:13px} .tiny{font-size:12px;color:var(--tx3)}
+
+/* hero */
+.hero{display:flex;align-items:center;gap:18px}
+.ring{position:relative;width:118px;height:118px;flex:none}
+.ring svg{transform:rotate(-90deg)}
+.ring .num{position:absolute;inset:0;display:grid;place-items:center;text-align:center}
+.ring .num b{font-size:32px;line-height:1;display:block}
+.ring .num span{font-size:11px;color:var(--tx3)}
+.hero-t{flex:1;min-width:0}
+.hero-t .verdict{font-weight:700;font-size:16.5px;margin-bottom:4px}
+.counts{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.cnt{padding:4px 10px;border-radius:10px;font-weight:700;font-size:13px}
+.cnt.ok{background:var(--okbg);color:var(--ok)} .cnt.warn{background:var(--warnbg);color:var(--warn)}
+.cnt.bad{background:var(--badbg);color:var(--bad)}
+
+/* buttons */
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:14px 16px;
+  border-radius:14px;font-weight:700;background:var(--acc);color:#fff;transition:transform .1s,opacity .2s}
+.btn:active{transform:scale(.98)} .btn:disabled{opacity:.5}
+.btn.ghost{background:var(--card2);color:var(--tx);border:1px solid var(--line)}
+.btn.danger{background:var(--badbg);color:var(--bad)}
+.btn.sm{width:auto;padding:8px 14px;font-size:13.5px;border-radius:11px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.tile{background:var(--card2);border:1px solid var(--line);border-radius:15px;padding:14px;text-align:right}
+.tile .ic{font-size:22px} .tile b{display:block;margin-top:6px} .tile span{font-size:12.5px;color:var(--tx2)}
+.tile:active{transform:scale(.98)}
+
+/* progress */
+.prog{height:10px;background:var(--card2);border-radius:99px;overflow:hidden;margin:12px 0 8px}
+.prog i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--acc),#22d3ee);
+  border-radius:99px;transition:width .4s}
+.spin{width:18px;height:18px;border-radius:50%;border:2.5px solid var(--line);border-top-color:var(--acc);
+  animation:sp 1s linear infinite;display:inline-block;vertical-align:middle}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* findings */
+.item{display:flex;gap:10px;padding:12px;border-radius:14px;margin:8px 0;background:var(--card2);
+  border-right:4px solid var(--tx3)}
+.item.ok{border-color:var(--ok)} .item.warn{border-color:var(--warn);background:var(--warnbg)}
+.item.bad{border-color:var(--bad);background:var(--badbg)} .item.info{border-color:var(--info)}
+.item .ic{flex:none;font-size:15px;line-height:1.6}
+.item .body{flex:1;min-width:0;overflow-wrap:anywhere}
+.item .t{font-weight:600}
+.item ul{margin:6px 0 0;padding:0 18px 0 0;color:var(--tx2);font-size:13.5px}
+.item li{margin:2px 0}
+.advice{margin-top:8px;font-size:13.5px;color:var(--tx);background:color-mix(in srgb,var(--card) 70%,transparent);
+  padding:8px 10px;border-radius:10px}
+.advice:before{content:"💡 "}
+details.sec{background:var(--card);border:1px solid var(--line);border-radius:16px;margin:10px 0;overflow:hidden}
+details.sec summary{list-style:none;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;
+  font-weight:700;cursor:pointer}
+details.sec summary::-webkit-details-marker{display:none}
+details.sec summary .badges{display:flex;gap:5px}
+details.sec .in{padding:0 12px 10px}
+.b{min-width:22px;height:22px;padding:0 6px;border-radius:7px;font-size:12px;display:grid;place-items:center;font-weight:700}
+.b.ok{background:var(--okbg);color:var(--ok)} .b.warn{background:var(--warnbg);color:var(--warn)} .b.bad{background:var(--badbg);color:var(--bad)}
+
+/* apps */
+.app{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.app:last-child{border:0}
+.app .n{min-width:0;overflow-wrap:anywhere}
+.tag{font-size:11.5px;padding:2px 8px;border-radius:7px;background:var(--warnbg);color:var(--warn);font-weight:600}
+
+/* history */
+.hrow{display:flex;align-items:center;justify-content:space-between;padding:12px 4px;border-bottom:1px solid var(--line)}
+.hrow:last-child{border:0}
+.pill{font-weight:800;padding:3px 10px;border-radius:10px}
+
+/* nav */
+nav.bot{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line);z-index:6;
+  padding-bottom:env(safe-area-inset-bottom)}
+nav.bot .wrap{display:grid;grid-template-columns:repeat(4,1fr);height:66px}
+nav.bot button{background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  color:var(--tx3);font-size:12px;font-weight:600}
+nav.bot button .ic{font-size:21px;filter:grayscale(1);opacity:.7}
+nav.bot button.on{color:var(--acc)} nav.bot button.on .ic{filter:none;opacity:1}
+
+/* sheet */
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:20;display:none}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:21;background:var(--card);border-radius:22px 22px 0 0;
+  max-height:88vh;overflow:auto;transform:translateY(100%);transition:transform .25s,visibility .25s;padding:8px 0 24px;visibility:hidden}
+.sheet.open{transform:none;visibility:visible} .sheet-bg.open{display:block}
+.grab{width:42px;height:5px;border-radius:9px;background:var(--line);margin:6px auto 10px}
+.steps{display:flex;gap:6px;margin:6px 0 16px}
+.steps i{flex:1;height:5px;border-radius:9px;background:var(--line)} .steps i.on{background:var(--acc)}
+.field{width:100%;padding:13px 14px;border-radius:13px;border:1px solid var(--line);background:var(--card2);
+  color:var(--tx);font-size:20px;text-align:center;letter-spacing:4px;direction:ltr;font-family:ui-monospace,monospace}
+.field:focus{outline:2px solid var(--acc);border-color:transparent}
+ol.how{padding:0 20px 0 0;margin:8px 0} ol.how li{margin:6px 0}
+.note{font-size:13px;color:var(--tx2);background:var(--infobg);padding:10px 12px;border-radius:12px;margin:10px 0}
+.toast{position:fixed;bottom:92px;left:50%;transform:translateX(-50%) translateY(20px);opacity:0;
+  background:var(--tx);color:var(--bg);padding:10px 16px;border-radius:12px;font-weight:600;z-index:30;
+  transition:.25s;max-width:90vw;text-align:center}
+.toast.show{opacity:1;transform:translateX(-50%)}
+.hide{display:none!important}
+.empty{text-align:center;padding:26px 10px;color:var(--tx2)}
+.empty .big{font-size:44px}
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <div class="brand"><div class="logo">🛡️</div>فحص</div>
+  <button class="chip" id="adbChip" onclick="openWizard()"><span class="dot"></span><span id="adbTxt">ADB…</span></button>
+</div></header>
+
+<main class="wrap">
+
+<!-- ═════════ الرئيسية ═════════ -->
+<section id="v-home">
+  <div class="card">
+    <div class="hero">
+      <div class="ring" id="homeRing"></div>
+      <div class="hero-t">
+        <div class="verdict" id="homeVerdict">ما درتي حتى فحص مازال</div>
+        <div class="small muted" id="homeDate">ضغط «فحص كامل» باش تبدا</div>
+        <div class="counts" id="homeCounts"></div>
+      </div>
+    </div>
+    <div class="tiny" id="devLine" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card hide" id="progCard">
+    <h2><span class="spin"></span> كنفحص التيليفون…</h2>
+    <div class="prog"><i id="progBar"></i></div>
+    <div class="small muted" id="progTxt">كنقرا لائحة التطبيقات…</div>
+  </div>
+
+  <div id="scanBtns">
+    <button class="btn" onclick="scan('full')">🔍 فحص كامل</button>
+    <div class="grid">
+      <button class="tile" onclick="scan('quick')"><div class="ic">⚡</div><b>فحص سريع</b><span>بلا الملفات والصلاحيات</span></button>
+      <button class="tile" onclick="scan('apps')"><div class="ic">📱</div><b>التطبيقات</b><span>الصلاحيات والمخبيين</span></button>
+      <button class="tile" onclick="scan('wifi')"><div class="ic">📶</div><b>شبكة الويفي</b><span>شكون متصل معاك</span></button>
+      <button class="tile" onclick="go('tools')"><div class="ic">🛠️</div><b>الأدوات</b><span>ADB والإعدادات</span></button>
+    </div>
+  </div>
+
+  <div class="card hide" id="adbHint">
+    <h2>⚠️ وضع ADB طافي</h2>
+    <div class="small muted">بلا ADB، Android ما كيخليش الأداة تشوف التطبيقات والصلاحيات. شعلو باش يكون الفحص كامل.</div>
+    <button class="btn ghost" style="margin-top:12px" onclick="openWizard()">شعل ADB خطوة بخطوة</button>
+  </div>
+</section>
+
+<!-- ═════════ النتيجة ═════════ -->
+<section id="v-result" class="hide">
+  <div id="resBody"></div>
+</section>
+
+<!-- ═════════ الأدوات ═════════ -->
+<section id="v-tools" class="hide">
+  <div class="card">
+    <h2>🔌 وضع ADB</h2>
+    <div class="small muted" id="toolsAdb">…</div>
+    <div class="grid">
+      <button class="btn sm" style="width:100%" onclick="openWizard()">شعل ADB</button>
+      <button class="btn sm danger" style="width:100%" onclick="adbOff()">طفي ADB</button>
+    </div>
+    <div class="note">ملي تسالي من الفحص، طفي ADB. إلا بقا شاعل، أي واحد معاك فالويفي يقدر يحاول يتصل بالتيليفون.</div>
+  </div>
+  <div class="card">
+    <h2>⚙️ حل الإعدادات</h2>
+    <div class="grid">
+      <button class="tile" onclick="openScreen('devonly')"><div class="ic">👨‍💻</div><b>خيارات المطور</b></button>
+      <button class="tile" onclick="openScreen('apps')"><div class="ic">📦</div><b>التطبيقات</b></button>
+      <button class="tile" onclick="openScreen('about')"><div class="ic">ℹ️</div><b>حول الهاتف</b></button>
+      <button class="tile" onclick="toggleTheme()"><div class="ic">🌓</div><b>الوضع الفاتح/الداكن</b></button>
+    </div>
+  </div>
+  <div class="card">
+    <h2>🔒 على الأمان ديال هاد الموقع</h2>
+    <div class="small muted">هاد الموقع كيخدم داخل التيليفون ديالك (localhost) من Termux. حتى جهاز آخر ما يقدر يدخل ليه، وحتى معلومة ما كتخرج للانترنت.</div>
+    <div class="tiny" id="verLine" style="margin-top:8px"></div>
+  </div>
+</section>
+
+<!-- ═════════ السجل ═════════ -->
+<section id="v-hist" class="hide">
+  <div class="card">
+    <h2>📈 النقطة مع الوقت</h2>
+    <div id="chart"></div>
+  </div>
+  <div class="card">
+    <h2>🗂️ الفحوصات لي فاتو</h2>
+    <div id="histList"></div>
+  </div>
+</section>
+</main>
+
+<nav class="bot"><div class="wrap">
+  <button data-v="home" class="on" onclick="go('home')"><span class="ic">🏠</span>الرئيسية</button>
+  <button data-v="result" onclick="go('result')"><span class="ic">📋</span>النتيجة</button>
+  <button data-v="tools" onclick="go('tools')"><span class="ic">🛠️</span>الأدوات</button>
+  <button data-v="hist" onclick="go('hist')"><span class="ic">🕘</span>السجل</button>
+</div></nav>
+
+<!-- ═════════ مساعد ADB ═════════ -->
+<div class="sheet-bg" id="sheetBg" onclick="closeWizard()"></div>
+<div class="sheet" id="sheet"><div class="wrap">
+  <div class="grab"></div>
+  <div class="steps" id="wSteps"><i></i><i></i><i></i><i></i></div>
+  <div id="wBody"></div>
+</div></div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN = "__FAHS_TOKEN__";
+const MODES = {full:"فحص كامل", quick:"فحص سريع", apps:"التطبيقات", wifi:"شبكة الويفي"};
+const ICON = {ok:"🟢", warn:"🟡", bad:"🔴", info:"🔵"};
+let ST = {}, RESULT = null, polling = null;
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+// النصوص اللاتينية (أسماء التطبيقات، IP) كنحطوهم فـ <code> باش ما يتقلبوش
+const fmt = s => esc(s).replace(/([A-Za-z0-9_][A-Za-z0-9_.:\/\-]*[A-Za-z0-9_](?:\.[A-Za-z0-9_]+)*)/g, m =>
+  /[.:\/]/.test(m) && m.length > 5 ? `<code>${m}</code>` : m);
+
+async function api(path, body){
+  const opt = {headers:{"X-Fahs-Token":TOKEN}};
+  if (body !== undefined){ opt.method = "POST"; opt.headers["Content-Type"]="application/json"; opt.body = JSON.stringify(body); }
+  const r = await fetch(path, opt);
+  return r.json();
+}
+function toast(t){ const el=$("toast"); el.textContent=t; el.classList.add("show"); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove("show"),2600); }
+
+function go(v){
+  for (const s of ["home","result","tools","hist"]) $("v-"+s).classList.toggle("hide", s!==v);
+  document.querySelectorAll("nav.bot button").forEach(b=>b.classList.toggle("on", b.dataset.v===v));
+  if (v==="hist") loadHistory();
+  if (v==="result" && !RESULT) $("resBody").innerHTML = `<div class="card empty"><div class="big">📋</div>مازال ما درتي حتى فحص.<br><br><button class="btn" onclick="scan('full')">ابدا فحص كامل</button></div>`;
+  scrollTo({top:0});
+}
+
+function scoreColor(s){ return s>=80 ? "var(--ok)" : s>=50 ? "var(--warn)" : "var(--bad)"; }
+function verdict(r){
+  if (!r) return "";
+  if (r.counts.bad) return `كاينين ${r.counts.bad} مشاكل خطيرة — شوفهم دابا`;
+  if (r.counts.warn) return `الجهاز غالباً سالم، و ${r.counts.warn} حوايج خصك تراجعهم`;
+  return "الجهاز ديالك باين سالم ✨";
+}
+function ring(score, size=118){
+  const r = size/2-10, c = 2*Math.PI*r, has = score!=null, v = has ? score : 0;
+  return `<svg width="${size}" height="${size}"><circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="var(--line)" stroke-width="11"/>
+  <circle cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke="${has?scoreColor(v):'var(--line)'}" stroke-width="11"
+   stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c*(1-v/100)}" style="transition:stroke-dashoffset 1s"/></svg>
+  <div class="num"><div><b>${has?v:"—"}</b><span>من 100</span></div></div>`;
+}
+function counts(c){ return c ? `<span class="cnt ok">🟢 ${c.ok}</span><span class="cnt warn">🟡 ${c.warn}</span><span class="cnt bad">🔴 ${c.bad}</span>` : ""; }
+
+function renderHome(){
+  const last = RESULT || ST.last;
+  $("homeRing").innerHTML = ring(last ? last.score : null);
+  if (last){
+    $("homeVerdict").textContent = RESULT ? verdict(RESULT) : `آخر فحص: ${last.score}/100`;
+    $("homeDate").innerHTML = `${esc(MODES[last.mode]||"")} — <bdi dir="ltr">${esc(last.date)}</bdi>`;
+    $("homeCounts").innerHTML = counts(last.counts);
+  }
+  const d = ST.device||{};
+  $("devLine").textContent = d.model ? `📱 ${d.brand} ${d.model} — Android ${d.android}` : "";
+  const on = !!ST.adb;
+  $("adbChip").classList.toggle("on", on);
+  $("adbTxt").textContent = on ? "ADB متصل" : "ADB طافي";
+  $("adbHint").classList.toggle("hide", on);
+  $("toolsAdb").innerHTML = on ? `🟢 متصل (<code>${esc(ST.adb)}</code>) — الفحص كامل.` : "⚪ طافي — شي فحوصات غادي يكونو ناقصين.";
+  $("verLine").textContent = `فحص v${ST.version||""}`;
+}
+
+async function refresh(){
+  try { ST = await api("/api/status"); renderHome(); } catch(e){ toast("ما قدرتش نتصل بـ Termux — واش الأداة باقا خدامة؟"); }
+}
+
+/* ───── الفحص ───── */
+async function scan(mode){
+  const r = await api("/api/scan", {mode});
+  if (!r.ok){ toast("كاين فحص خدام دابا"); }
+  go("home");
+  $("scanBtns").classList.add("hide"); $("progCard").classList.remove("hide");
+  $("progBar").style.width = "4%"; $("progTxt").textContent = "كنقرا لائحة التطبيقات…";
+  clearInterval(polling);
+  polling = setInterval(pollJob, 700);
+}
+async function pollJob(){
+  const j = await api("/api/job");
+  if (j.total) $("progBar").style.width = Math.max(4, Math.round(100*j.step/j.total)) + "%";
+  if (j.title) $("progTxt").textContent = `${j.step}/${j.total} — ${j.title}`;
+  if (!j.running){
+    clearInterval(polling);
+    $("scanBtns").classList.remove("hide"); $("progCard").classList.add("hide");
+    if (j.error){ toast("وقع مشكل: " + j.error); return; }
+    if (j.result){ RESULT = j.result; renderResult(RESULT); await refresh(); go("result"); }
+  }
+}
+
+function itemHTML(it){
+  const subs = it.subs && it.subs.length ? `<ul>${it.subs.map(s=>`<li>${fmt(s)}</li>`).join("")}</ul>` : "";
+  const adv = it.advice ? `<div class="advice">${fmt(it.advice)}</div>` : "";
+  return `<div class="item ${it.kind}"><div class="ic">${ICON[it.kind]||"🔵"}</div><div class="body"><div class="t">${fmt(it.text)}</div>${subs}${adv}</div></div>`;
+}
+
+function renderResult(r, fromHistory){
+  let h = `<div class="card"><div class="hero"><div class="ring">${ring(r.score)}</div><div class="hero-t">
+    <div class="verdict">${esc(verdict(r))}</div><div class="small muted">${esc(MODES[r.mode]||"")} — <bdi dir="ltr">${esc(r.date)}</bdi>${r.adb?" — ADB ✅":""}</div>
+    <div class="counts">${counts(r.counts)}</div></div></div>
+    ${fromHistory?`<div class="tiny" style="margin-top:10px">هادا فحص قديم من السجل.</div>`:""}</div>`;
+
+  if (r.findings.length){
+    h += `<div class="card"><h2>✅ شنو خصك دير</h2>${r.findings.map(itemHTML).join("")}</div>`;
+  }
+  if (r.risky && r.risky.length && !fromHistory){
+    h += `<div class="card"><h2>🗑️ تطبيقات تقدر تمسحهم</h2><div class="tiny">ضغط «مسح» وغادي تتحل نافذة Android — نتا لي كتأكد.</div>
+      ${r.risky.map(a=>`<div class="app"><div class="n"><code>${esc(a.pkg)}</code> ${a.why?`<span class="tag">${esc(a.why)}</span>`:""}</div>
+      <button class="btn sm danger" onclick="uninstall('${esc(a.pkg)}', this)">مسح</button></div>`).join("")}</div>`;
+  }
+  h += `<h2 style="margin:20px 4px 4px;font-size:16px">📂 التفاصيل</h2>`;
+  for (const s of r.sections){
+    const c = {ok:0,warn:0,bad:0}; s.items.forEach(i=>{ if (c[i.kind]!=null) c[i.kind]++; });
+    const badges = ["bad","warn","ok"].filter(k=>c[k]).map(k=>`<span class="b ${k}">${c[k]}</span>`).join("");
+    h += `<details class="sec" ${c.bad?"open":""}><summary><span>${esc(s.title)}</span><span class="badges">${badges}</span></summary>
+      <div class="in">${s.items.map(itemHTML).join("") || '<div class="tiny">والو</div>'}</div></details>`;
+  }
+  h += `<div class="note">بلا root، حتى أداة ما تقدر تضمن 100%. إلا شكيتي بزاف، دير Factory Reset وبدّل كلمات السر من جهاز آخر.</div>`;
+  $("resBody").innerHTML = h;
+}
+
+async function uninstall(pkg, btn){
+  btn.disabled = true;
+  await api("/api/uninstall", {pkg});
+  toast("تحلات نافذة المسح فالتيليفون — أكد تما");
+  setTimeout(()=>btn.disabled=false, 3000);
+}
+
+/* ───── السجل ───── */
+async function loadHistory(){
+  const h = await api("/api/history");
+  if (!h.length){
+    $("histList").innerHTML = `<div class="empty"><div class="big">🕘</div>مازال ما كاين حتى فحص فالسجل.</div>`;
+    $("chart").innerHTML = `<div class="tiny">الرسم كيبان من بعد جوج فحوصات.</div>`; return;
+  }
+  $("histList").innerHTML = h.map(x=>`<div class="hrow" onclick="openHist('${x.id}')" style="cursor:pointer">
+    <div><b>${esc(MODES[x.mode]||x.mode)}</b><div class="tiny"><bdi dir="ltr">${esc(x.date)}</bdi></div></div>
+    <div style="display:flex;gap:8px;align-items:center">${x.counts?`<span class="tiny">🟡${x.counts.warn} 🔴${x.counts.bad}</span>`:""}
+    <span class="pill" style="color:${scoreColor(x.score)};background:var(--card2)">${x.score}</span></div></div>`).join("");
+  const pts = h.filter(x=>x.mode!=="wifi").slice(0,20).reverse();
+  if (pts.length < 2){ $("chart").innerHTML = `<div class="tiny">الرسم كيبان من بعد جوج فحوصات.</div>`; return; }
+  const W=600, H=170, P=24, n=pts.length;
+  const X = i => W-P - i*(W-2*P)/(n-1);          // من اليمين لليسار
+  const Y = v => H-P - v*(H-2*P)/100;
+  const line = pts.map((p,i)=>`${i?"L":"M"}${X(i).toFixed(1)},${Y(p.score).toFixed(1)}`).join(" ");
+  const grid = [0,50,100].map(v=>`<line x1="${P}" x2="${W-P}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)" stroke-dasharray="4 5"/>
+    <text x="${W-4}" y="${Y(v)+4}" font-size="12" fill="var(--tx3)" text-anchor="end">${v}</text>`).join("");
+  const dots = pts.map((p,i)=>`<circle cx="${X(i)}" cy="${Y(p.score)}" r="5" fill="${scoreColor(p.score)}"><title>${p.date}: ${p.score}</title></circle>`).join("");
+  $("chart").innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block">${grid}
+    <path d="${line}" fill="none" stroke="var(--acc)" stroke-width="3" stroke-linejoin="round"/>${dots}</svg>
+    <div class="tiny">الجديد على اليمين ← القديم على اليسار</div>`;
+}
+async function openHist(id){
+  const r = await api("/api/history/"+id);
+  if (r && r.sections){ renderResult(r, true); go("result"); }
+}
+
+/* ───── الأدوات ───── */
+async function openScreen(s){
+  const r = await api("/api/open", {screen:s});
+  toast(r.ok ? "تحلات الصفحة فالإعدادات" : "ما قدرتش نحلها — حلها بيدك من الإعدادات");
+}
+async function adbOff(){
+  if (!confirm("نطفي ADB وتصحيح الأخطاء دابا؟")) return;
+  const r = await api("/api/adb/off", {});
+  toast(r.ok ? "تطفى ADB ✅" : (r.msg||"ADB ما متصلش"));
+  setTimeout(refresh, 2500);
+}
+function toggleTheme(){
+  const cur = document.documentElement.dataset.theme ||
+    (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+  const nx = cur==="light" ? "dark" : "light";
+  document.documentElement.dataset.theme = nx;
+  try { localStorage.setItem("fahs-theme", nx); } catch(e){}
+}
+try { const t = localStorage.getItem("fahs-theme"); if (t) document.documentElement.dataset.theme = t; } catch(e){}
+
+/* ───── مساعد ADB ───── */
+let W = {step:0, before:null, port:null, timer:null};
+function openWizard(){
+  if (ST.adb){ toast("ADB راه متصل ✅"); return; }
+  $("sheet").classList.add("open"); $("sheetBg").classList.add("open");
+  wStep(ST.adb_installed ? 1 : 0);
+}
+function closeWizard(){
+  $("sheet").classList.remove("open"); $("sheetBg").classList.remove("open");
+  clearInterval(W.timer);
+}
+function wStep(n){
+  W.step = n; clearInterval(W.timer);
+  document.querySelectorAll("#wSteps i").forEach((el,i)=>el.classList.toggle("on", i<=n));
+  const b = $("wBody");
+  if (n===0){
+    b.innerHTML = `<h2>📦 الخطوة 1: نصب أداة ADB</h2>
+      <p class="muted small">خاص البرنامج <code>android-tools</code> فـ Termux (تقريباً 4 MB).</p>
+      <button class="btn" id="wInst" onclick="wInstall()">نصبو دابا</button>`;
+  } else if (n===1){
+    b.innerHTML = `<h2>👨‍💻 الخطوة 2: خيارات المطور</h2>
+      <p class="muted small">Android ما كيخليش حتى تطبيق يشعل ADB بوحدو — نتا لي غادي تعطي السماح، وأنا نقولك فين.</p>
+      <ol class="how small"><li>إلا ما عندكش «خيارات المطور»: حل «حول الهاتف» وضغط <b>7 مرات</b> على «رقم الإصدار».</li>
+      <li>فـ realme: الإعدادات ← حول الجهاز ← الإصدار ← رقم الإصدار.</li></ol>
+      <div class="grid"><button class="btn ghost sm" style="width:100%" onclick="openScreen('about')">حل «حول الهاتف»</button>
+      <button class="btn sm" style="width:100%" onclick="wStep(2)">عندي خيارات المطور ←</button></div>`;
+  } else if (n===2){
+    b.innerHTML = `<h2>📶 الخطوة 3: تصحيح الأخطاء اللاسلكي</h2>
+      <div class="note">قسم الشاشة على جوج: هاد الصفحة لتحت، والإعدادات لفوق. (زر التطبيقات المفتوحة ← الأيقونة ديال المتصفح ← تقسيم الشاشة)</div>
+      <ol class="how small"><li>حل خيارات المطور.</li><li>شعل <b>«تصحيح الأخطاء اللاسلكي»</b> ووافق على «السماح».</li></ol>
+      <div class="grid"><button class="btn ghost sm" style="width:100%" onclick="openScreen('dev')">حل خيارات المطور</button>
+      <button class="btn sm" style="width:100%" id="wOn" onclick="wEnabled()">شعلتو ←</button></div>`;
+  } else if (n===3){
+    b.innerHTML = `<h2>🔑 الخطوة 4: رمز الإقران</h2>
+      <ol class="how small"><li>ضغط على الكتابة «تصحيح الأخطاء اللاسلكي».</li><li>ضغط <b>«إقران الجهاز باستخدام رمز الإقران»</b>.</li>
+      <li>خلي النافذة مفتوحة — إلا سديتيها الرمز كيموت.</li></ol>
+      <div class="small" id="wPortMsg" style="margin:10px 0">${W.before ? '<span class="spin"></span> كنتسنى نافذة الإقران…' : 'كتب البورت لي تحت «عنوان IP والمنفذ» (الرقم من بعد :)'}</div>
+      <input class="field" id="wPort" inputmode="numeric" placeholder="البورت" style="font-size:16px;letter-spacing:1px;margin-bottom:10px">
+      <input class="field" id="wCode" inputmode="numeric" maxlength="6" placeholder="••••••">
+      <button class="btn" style="margin-top:12px" id="wPair" onclick="wPair()">اقرن واتصل</button>
+      <div class="small" id="wErr" style="color:var(--bad);margin-top:10px"></div>`;
+    if (W.before){
+      W.timer = setInterval(async ()=>{
+        const p = await api("/api/adb/ports");
+        const nw = (p.ports||[]).filter(x=>!W.before.includes(x));
+        if (nw.length){ clearInterval(W.timer); $("wPort").value = nw[0];
+          $("wPortMsg").innerHTML = `🟢 لقيت نافذة الإقران (البورت <code>${nw[0]}</code>). كتب الرمز:`; $("wCode").focus(); }
+      }, 1000);
+    }
+  } else if (n===4){
+    b.innerHTML = `<div class="empty"><div class="big">🎉</div><h2 style="justify-content:center">ADB متصل!</h2>
+      <p class="muted small">دابا الفحص غادي يكون كامل. المرة الجاية غادي نتصل بوحدي ما دام «تصحيح الأخطاء اللاسلكي» شاعل.</p>
+      <button class="btn" onclick="closeWizard();scan('full')">ابدا فحص كامل</button></div>`;
+  }
+}
+async function wInstall(){
+  const b = $("wInst"); b.disabled = true; b.innerHTML = '<span class="spin"></span> كننصب… (حتى دقيقة)';
+  const r = await api("/api/adb/install", {});
+  if (r.ok){ ST.adb_installed = true; wStep(1); } else { b.disabled=false; b.textContent="ما نجحش — عاود"; toast("جرب فـ Termux: pkg install android-tools"); }
+}
+async function wEnabled(){
+  const b = $("wOn"); b.disabled = true; b.innerHTML = '<span class="spin"></span>';
+  const c = await api("/api/adb/connect", {});
+  if (c.ok){ ST.adb = c.adb; renderHome(); wStep(4); return; }
+  const p = await api("/api/adb/ports");
+  W.before = p.ports;   // null = ما قدرناش نقراو البورتات
+  wStep(3);
+}
+async function wPair(){
+  const port = $("wPort").value.replace(/.*:/,"").trim(), code = $("wCode").value;
+  const b = $("wPair"); b.disabled = true; b.innerHTML = '<span class="spin"></span> كنقرن…'; $("wErr").textContent = "";
+  const r = await api("/api/adb/pair", {port, code});
+  b.disabled = false; b.textContent = "اقرن واتصل";
+  if (r.ok){ ST.adb = r.adb; renderHome(); wStep(4); return; }
+  $("wErr").textContent = r.msg || "ما نجحش";
+  if (r.paired){
+    $("wPortMsg").textContent = "الإقران نجح ✅ دابا كتب البورت لي فوق فصفحة «تصحيح الأخطاء اللاسلكي»:";
+    $("wCode").classList.add("hide"); b.textContent = "اتصل";
+    b.onclick = async ()=>{ const c = await api("/api/adb/connect", {port:$("wPort").value.replace(/.*:/,"")});
+      if (c.ok){ ST.adb=c.adb; renderHome(); wStep(4);} else $("wErr").textContent="ما تصلش — تأكد من البورت"; };
+  }
+}
+
+refresh();
+</script>
+</body>
+</html>
