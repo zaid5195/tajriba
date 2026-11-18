@@ -191,7 +191,24 @@ STALKER_WORDS = [
 ]
 # كلمات عامة كتستاهل نراجعوها
 SUSPECT_WORDS = ["spy", "keylog", "stalk", "monitor", "hidden", "tracker",
-                 "rat.", ".rat", "remote", "backdoor", "payload"]
+                 "rat.", ".rat", "backdoor", "payload"]
+# تطبيقات مخدّمة بالمودات / مخترقة — غالباً فيهم برامج خبيثة
+MOD_STORES = {"com.happymod.apk": "HappyMod", "com.apkpure.aegon": "APKPure",
+              "com.lulubox": "LuluBox", "com.blackmod": "BlackMod",
+              "com.ac.market.store": "AC Market", "com.mobilism": "Mobilism"}
+# تطبيقات الشركة لي صنعات التيليفون (ماشي خطيرين)
+OEM_PREFIXES = ("com.coloros.", "com.oplus.", "com.heytap.", "andes.oplus.",
+                "com.realme.", "com.oppo.", "com.nearme.", "com.miui.",
+                "com.xiaomi.", "com.mi.", "com.samsung.", "com.sec.",
+                "com.huawei.", "com.hihonor.", "com.vivo.", "com.bbk.",
+                "com.transsion.", "com.android.", "com.google.android.",
+                "org.chromium.webapk.", "com.facebook.aura",
+                "com.facebook.appmanager", "com.facebook.system",
+                "com.facebook.services", "com.amazon.appmanager")
+
+
+def is_oem(p):
+    return p.startswith(OEM_PREFIXES)
 # تطبيقات root
 ROOT_APPS = {
     "com.topjohnwu.magisk": "Magisk",
@@ -210,6 +227,7 @@ TRUSTED_INSTALLERS = {
     "com.xiaomi.market", "com.xiaomi.mipicks", "com.heytap.market",
     "com.oppo.market", "com.bbk.appstore", "com.amazon.venezia",
     "org.fdroid.fdroid", "com.aurora.store", "com.transsion.appstore",
+    "com.android.chrome", "com.google.android.packageinstaller.preload",
     "com.oneplus.market", "com.vivo.appstore", "com.hihonor.appmarket",
 }
 
@@ -442,16 +460,25 @@ def check_apps():
         for p in sus:
             sub(p)
 
+    mods = [f"{MOD_STORES[p]} ({p})" for p in PACKAGES if p in MOD_STORES]
+    if mods:
+        clean = False
+        warn("عندك متجر ديال التطبيقات المهكرة (مودات):",
+             "التطبيقات المهكرة من هاد المتاجر بزاف منهم فيهم برامج خبيثة. "
+             "مسح المتجر، والتطبيقات لي نصبتي منو إلا ما محتاجهمش.")
+        for m in mods:
+            sub(m)
+
     side = [p for p, d in PACKAGES.items()
             if d["installer"] not in TRUSTED_INSTALLERS
-            and not p.startswith("com.termux")]
+            and not p.startswith("com.termux") and not is_oem(p)]
     if side:
         warn(f"{len(side)} تطبيق منصّب من برا المتجر (APK):",
              "التطبيقات من برا Play Store هوما الطريق الأول للاختراق. مسح لي ما عارفوش.")
         for p in sorted(side)[:20]:
             sub(p)
         if len(side) > 20:
-            sub(f"... و {len(side) - 20} آخرين (شوف التقرير)")
+            print(f"{D}{_ar(f'... و {len(side) - 20} آخرين (شوف التقرير)')}{N}")
             for p in sorted(side)[20:]:
                 REPORT.append(f"  • {p}")
     else:
@@ -554,8 +581,10 @@ def check_network():
                 continue
             seen.add((port, uid))
             public = ip in ("0.0.0.0", "::")
-            if public and uid >= 10000:
-                open_ext.append((port, owner(uid)))
+            o = owner(uid)
+            if public and uid >= 10000 and not all(
+                    is_oem(x.strip()) for x in o.split(",")):
+                open_ext.append((port, o))
         if open_ext:
             warn("تطبيقات حالّين بورت مفتوح للشبكة:",
                  "أي جهاز معاك فالويفي يقدر يتصل بيهم. إلا ما عارفش هاد التطبيق، مسحو.")
