@@ -1611,10 +1611,17 @@ def audio_max():
         done.append("termux")
     if ADB:
         out = sh("media volume --stream 3 --get", 6)
-        m = re.search(r"\[0,\s*(\d+)\]", out)
-        maxv = int(m.group(1)) if m else 15
-        for stream in (3, 4, 2, 5):   # music, alarm, ring, notification
-            sh(f"media volume --stream {stream} --set {maxv}", 6)
+        if "inaccessible" in out or "not found" in out or not out:
+            # شي تيليفونات (realme/ColorOS) كيحجبو media — نجربو بدائل
+            alt = sh("cmd media_session volume --stream 3 --set 25 2>&1", 6)
+            if any(w in alt for w in ("nknown", "xception", "ailure", "accessible")) or not alt:
+                for _ in range(15):          # نضغطو زر رفع الصوت
+                    sh("input keyevent 24", 4)
+        else:
+            m = re.search(r"\[0,\s*(\d+)\]", out)
+            maxv = int(m.group(1)) if m else 15
+            for stream in (3, 4, 2, 5):      # music, alarm, ring, notification
+                sh(f"media volume --stream {stream} --set {maxv}", 6)
         done.append("adb")
     return {"ok": bool(done), "via": done, "msg": "" if done
             else "خاص Termux:API ولا وضع ADB"}
