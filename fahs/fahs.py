@@ -16,7 +16,7 @@ import socket
 import concurrent.futures as cf
 import subprocess
 
-VERSION = "2.0"
+VERSION = "2.1"
 
 # ───────────────────────── العربية ─────────────────────────
 try:
@@ -1434,6 +1434,139 @@ def adb_off_menu():
         rline("تطفى ADB ✅ (الاتصال غادي يتقطع، هادشي عادي)", G)
 
 
+# ───────────────────────── حماية الحسابات ─────────────────────────
+# كنفحصو كلمات السر بطريقة k-anonymity: كنصيفطو غير 5 حروف من البصمة،
+# وكلمة السر راسها ما كتخرج أبداً من التيليفون.
+import hashlib
+import secrets
+import urllib.request
+import urllib.error
+import urllib.parse
+
+
+def pwned_password(password):
+    """كترجع شحال من مرة بانت كلمة السر فتسريبات. -1 إلا ما وصلش الانترنت."""
+    sha1 = hashlib.sha1(password.encode("utf-8")).hexdigest().upper()
+    prefix, suffix = sha1[:5], sha1[5:]
+    try:
+        req = urllib.request.Request(
+            f"https://api.pwnedpasswords.com/range/{prefix}",
+            headers={"User-Agent": "fahs-security-tool", "Add-Padding": "true"})
+        data = urllib.request.urlopen(req, timeout=20).read().decode()
+    except Exception:
+        return -1
+    for line in data.splitlines():
+        suf, _, count = line.partition(":")
+        if suf == suffix:
+            return int(count)
+    return 0
+
+
+def pwned_email(email, api_key):
+    """كترجع لائحة التسريبات لبريد معين. محتاج مفتاح HIBP."""
+    url = ("https://haveibeenpwned.com/api/v3/breachedaccount/"
+           + urllib.parse.quote(email) + "?truncateResponse=false")
+    try:
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "fahs-security-tool", "hibp-api-key": api_key})
+        data = urllib.request.urlopen(req, timeout=25).read().decode()
+        return {"ok": True, "breaches": json.loads(data)}
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return {"ok": True, "breaches": []}   # ما تسربش
+        if e.code == 401:
+            return {"ok": False, "msg": "المفتاح ديال HIBP غالط ولا انتهى"}
+        if e.code == 429:
+            return {"ok": False, "msg": "بزاف ديال الطلبات، تسنى شوية وعاود"}
+        return {"ok": False, "msg": f"خطأ من HIBP ({e.code})"}
+    except Exception:
+        return {"ok": False, "msg": "ما قدرتش نوصل للانترنت"}
+
+
+def password_strength(pw):
+    """تقييم بسيط ديال قوة كلمة السر — كلشي كيتحسب داخل التيليفون."""
+    import string
+    score, notes = 0, []
+    sets = sum(bool(set(pw) & set(s)) for s in (
+        string.ascii_lowercase, string.ascii_uppercase, string.digits,
+        "!@#$%^&*()-_=+[]{};:,.<>/?|~"))
+    if len(pw) >= 12:
+        score += 2
+    elif len(pw) >= 8:
+        score += 1
+    else:
+        notes.append("قصيرة — خليها 12 حرف على الأقل")
+    score += sets - 1
+    if sets < 3:
+        notes.append("زيد حروف كبار وصغار وأرقام ورموز")
+    low = pw.lower()
+    if any(w in low for w in ("password", "123456", "qwerty", "azerty", "admin",
+                              "iloveyou", "welcome")) or re.search(r"(.)\1\1", pw):
+        score -= 2
+        notes.append("فيها نمط معروف ساهل يتكتشف")
+    level = ("ضعيفة جداً", "ضعيفة", "متوسطة", "قوية", "قوية بزاف")[max(0, min(4, score))]
+    return level, notes
+
+
+def gen_password(length=18, symbols=True, pronounceable=False):
+    """كيولد كلمة سر قوية عشوائية بـ secrets (آمن تشفيرياً)."""
+    import string
+    if pronounceable:
+        cons, vows = "bcdfghjkmnpqrstvwxz", "aeiou"
+        out = ""
+        for i in range(length):
+            out += secrets.choice(cons if i % 2 == 0 else vows)
+        out = out.capitalize() + str(secrets.randbelow(90) + 10)
+        return out + (secrets.choice("!@#$%&*") if symbols else "")
+    alpha = string.ascii_letters + string.digits
+    if symbols:
+        alpha += "!@#$%^&*()-_=+"
+    while True:
+        pw = "".join(secrets.choice(alpha) for _ in range(length))
+        if (any(c.islower() for c in pw) and any(c.isupper() for c in pw)
+                and any(c.isdigit() for c in pw)):
+            return pw
+
+
+def check_accounts_tty():
+    """قسم حماية الحسابات فالتيرمينال (تفاعلي)."""
+    header("حماية الحسابات")
+    info("هاد القسم كيفحص واش كلمة السر ديالك بانت فتسريب معروف. "
+         "كلمة السر راسها ما كتخرج أبداً من التيليفون (طريقة k-anonymity).")
+    while True:
+        print()
+        rline("[1] فحص كلمة سر   [2] مولّد كلمة سر قوية   [0] رجوع", C)
+        c = ask("ختار")
+        if c == "1":
+            try:
+                import getpass
+                pw = getpass.getpass("  كلمة السر (ما كتبانش ملي كتكتبها): ")
+            except Exception:
+                pw = ask("كلمة السر")
+            if not pw:
+                continue
+            rline("كنفحص...", D)
+            n = pwned_password(pw)
+            lvl, notes = password_strength(pw)
+            if n < 0:
+                warn("ما قدرتش نوصل للانترنت باش نفحص التسريبات",
+                     "تأكد من الاتصال وعاود.")
+            elif n == 0:
+                ok(f"كلمة السر ما بانتش فحتى تسريب معروف 👍 (القوة: {lvl})")
+            else:
+                bad(f"كلمة السر بانت فـ {n:,} مرة فتسريبات!",
+                    "ما تستعملهاش. بدّلها دابا فأي حساب كتستعملها فيه.")
+            for note in notes:
+                sub(note)
+        elif c == "2":
+            pw = gen_password(18, True)
+            ok("كلمة سر قوية مولّدة:")
+            print(f"{BOLD}{W}  {pw}{N}")
+            sub("كلمة سر مختلفة لكل حساب هي أحسن حماية.")
+        else:
+            return
+
+
 def banner():
     w = WIDTH - 3
     print()
@@ -1456,10 +1589,11 @@ MENU = [
     ("2", "فحص سريع (بلا الملفات)", "quick"),
     ("3", "التطبيقات والصلاحيات بوحدهم", "apps"),
     ("4", "فحص شبكة الويفي", "wifi"),
-    ("5", "مسح تطبيق", "uninstall"),
-    ("6", "شعل وضع ADB (فحص كامل)", "adbsetup"),
-    ("7", "طفي ADB وتصحيح الأخطاء", "adboff"),
-    ("8", "لوحة التحكم فالمتصفح 🌐", "web"),
+    ("5", "حماية الحسابات (فحص كلمات السر) 🔑", "accounts"),
+    ("6", "مسح تطبيق", "uninstall"),
+    ("7", "شعل وضع ADB (فحص كامل)", "adbsetup"),
+    ("8", "طفي ADB وتصحيح الأخطاء", "adboff"),
+    ("9", "لوحة التحكم فالمتصفح 🌐", "web"),
     ("0", "خروج", "exit"),
 ]
 
@@ -1483,6 +1617,7 @@ HELP = """fahs — فحص أمان التيليفون
   fahs --quick    فحص سريع
   fahs --apps     التطبيقات والصلاحيات
   fahs --wifi     فحص شبكة الويفي
+  fahs --accounts حماية الحسابات (فحص كلمات السر)
   --no-color      بلا ألوان
   --no-adb        ما تستعملش ADB
   --setup-adb     مساعد تشغيل ADB خطوة بخطوة
@@ -1555,7 +1690,8 @@ def main():
         adb_setup()
         return
     mode = next((m for f, m in (("--full", "full"), ("--quick", "quick"),
-                                ("--apps", "apps"), ("--wifi", "wifi"))
+                                ("--apps", "apps"), ("--wifi", "wifi"),
+                                ("--accounts", "accounts"))
                  if f in sys.argv), None)
     interactive = sys.stdin.isatty() and mode is None
     if mode is None:
@@ -1565,6 +1701,9 @@ def main():
     if mode == "web":
         import fahs_web
         fahs_web.serve(sys.modules[__name__])
+        return
+    if mode == "accounts":
+        check_accounts_tty()
         return
     if mode == "adbsetup":
         adb_setup()

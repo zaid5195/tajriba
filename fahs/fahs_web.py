@@ -207,6 +207,39 @@ def fix_background():
     return {"ok": True}
 
 
+def pw_check(password):
+    """فحص كلمة سر بـ k-anonymity. كلمة السر ما كتتسجل ولا كتخرج كاملة."""
+    if not password:
+        return {"ok": False}
+    n = F.pwned_password(password)
+    level, notes = F.password_strength(password)
+    return {"ok": True, "count": n, "level": level, "notes": notes,
+            "online": n >= 0}
+
+
+def email_check(email, api_key):
+    email = (email or "").strip()
+    if "@" not in email:
+        return {"ok": False, "msg": "البريد غالط"}
+    if not (api_key or "").strip():
+        return {"ok": False, "need_key": True}
+    r = F.pwned_email(email, api_key.strip())
+    if not r.get("ok"):
+        return r
+    out = []
+    for b in r["breaches"]:
+        out.append({"name": b.get("Title") or b.get("Name"),
+                    "date": b.get("BreachDate", ""),
+                    "data": b.get("DataClasses", [])[:8]})
+    out.sort(key=lambda x: x["date"], reverse=True)
+    return {"ok": True, "breaches": out}
+
+
+def gen_pw(length, symbols, pron):
+    length = max(8, min(64, int(length or 18)))
+    return {"ok": True, "pw": F.gen_password(length, bool(symbols), bool(pron))}
+
+
 def status():
     return {
         "version": F.VERSION,
@@ -317,6 +350,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(fix_background())
         if path == "/api/adb/off":
             return self._json(adb_off())
+        if path == "/api/pw-check":
+            return self._json(pw_check(body.get("password", "")))
+        if path == "/api/email-check":
+            return self._json(email_check(body.get("email", ""), body.get("key", "")))
+        if path == "/api/gen-pw":
+            return self._json(gen_pw(body.get("length", 18),
+                                     body.get("symbols", True), body.get("pron", False)))
         self._json({"error": "not found"}, 404)
 
 

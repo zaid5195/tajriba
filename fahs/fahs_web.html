@@ -120,7 +120,16 @@ details.sec .in{padding:0 12px 10px}
 /* nav */
 nav.bot{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--line);z-index:6;
   padding-bottom:env(safe-area-inset-bottom)}
-nav.bot .wrap{display:grid;grid-template-columns:repeat(4,1fr);height:66px}
+nav.bot .wrap{display:grid;grid-template-columns:repeat(5,1fr);height:66px}
+.row{display:flex;align-items:center;gap:8px;margin:8px 0;cursor:pointer}
+.row input{width:18px;height:18px;accent-color:var(--acc)}
+.genout{background:var(--card2);border:1px dashed var(--line);border-radius:13px;padding:14px;text-align:center;
+  font-size:18px;word-break:break-all;cursor:pointer;color:var(--ok)}
+.big-badge{text-align:center;padding:16px;border-radius:14px;margin-top:4px}
+.big-badge.ok{background:var(--okbg);color:var(--ok)} .big-badge.bad{background:var(--badbg);color:var(--bad)}
+.big-badge .n{font-size:30px;font-weight:800;display:block}
+.strength{height:7px;border-radius:9px;background:var(--card2);overflow:hidden;margin:10px 0 4px}
+.strength i{display:block;height:100%;transition:.3s}
 nav.bot button{background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
   color:var(--tx3);font-size:12px;font-weight:600}
 nav.bot button .ic{font-size:21px;filter:grayscale(1);opacity:.7}
@@ -242,11 +251,54 @@ ol.how{padding:0 20px 0 0;margin:8px 0} ol.how li{margin:6px 0}
     <div id="histList"></div>
   </div>
 </section>
+
+<!-- ═════════ حماية الحسابات ═════════ -->
+<section id="v-guard" class="hide">
+  <div class="card">
+    <h2>🔑 فحص كلمة السر</h2>
+    <div class="small muted">كتب كلمة سر، والأداة كتشوف واش بانت فشي تسريب معروف. كلمة السر راسها <b>ما كتخرجش</b> من التيليفون — كتصيفط غير 5 حروف من البصمة (k-anonymity).</div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <input class="field" id="pwIn" type="password" placeholder="كلمة السر" style="font-size:16px;letter-spacing:1px" oninput="pwReset()">
+      <button class="btn sm ghost" onclick="pwShow()" id="pwEye" style="flex:none">👁️</button>
+    </div>
+    <button class="btn" style="margin-top:10px" id="pwBtn" onclick="pwCheck()">افحص</button>
+    <div id="pwRes" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card">
+    <h2>🎲 مولّد كلمات سر قوية</h2>
+    <div class="genout mono" id="genOut" onclick="copyGen()">— — —</div>
+    <div class="small muted" style="text-align:center;margin:6px 0">ضغط باش تنسخ</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
+      <span class="small">الطول: <b id="genLen">18</b></span>
+      <input type="range" id="genRange" min="10" max="40" value="18" oninput="$('genLen').textContent=this.value" style="flex:1">
+    </div>
+    <label class="row small"><input type="checkbox" id="genSym" checked> رموز (!@#)</label>
+    <label class="row small"><input type="checkbox" id="genPron"> ساهلة تتقرا</label>
+    <button class="btn ghost" style="margin-top:10px" onclick="genNew()">ولّد وحدة جديدة</button>
+  </div>
+
+  <div class="card">
+    <h2>📧 فحص البريد الإلكتروني</h2>
+    <div class="small muted">كيشوف واش البريد ديالك بان فتسريبات معروفة وفينا. محتاج مفتاح من <code>haveibeenpwned.com</code> (مدفوع). كلمة السر ديال البريد ما كتدخلهاش هنا.</div>
+    <input class="field" id="emIn" type="email" placeholder="you@gmail.com" style="font-size:15px;text-align:right;letter-spacing:0;direction:ltr;margin-top:12px">
+    <input class="field" id="emKey" type="password" placeholder="HIBP API key" style="font-size:14px;letter-spacing:0;direction:ltr;margin-top:8px">
+    <button class="btn" style="margin-top:10px" id="emBtn" onclick="emailCheck()">افحص البريد</button>
+    <div id="emRes" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card">
+    <h2>🛡️ أقوى حماية: التحقق بخطوتين (2FA)</h2>
+    <div class="small muted">حتى لو تسربات كلمة السر، 2FA كيمنع أي واحد يدخل لحسابك بلا التيليفون ديالك. شعلو فـ Gmail:</div>
+    <ol class="how small"><li>حساب Google ← الأمان ← التحقق بخطوتين.</li><li>فعّل «مفتاح المرور» ولا تطبيق مصادقة (Authenticator).</li></ol>
+  </div>
+</section>
 </main>
 
 <nav class="bot"><div class="wrap">
   <button data-v="home" class="on" onclick="go('home')"><span class="ic">🏠</span>الرئيسية</button>
   <button data-v="result" onclick="go('result')"><span class="ic">📋</span>النتيجة</button>
+  <button data-v="guard" onclick="go('guard')"><span class="ic">🔑</span>الحماية</button>
   <button data-v="tools" onclick="go('tools')"><span class="ic">🛠️</span>الأدوات</button>
   <button data-v="hist" onclick="go('hist')"><span class="ic">🕘</span>السجل</button>
 </div></nav>
@@ -282,9 +334,10 @@ async function api(path, body){
 function toast(t){ const el=$("toast"); el.textContent=t; el.classList.add("show"); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove("show"),2600); }
 
 function go(v){
-  for (const s of ["home","result","tools","hist"]) $("v-"+s).classList.toggle("hide", s!==v);
+  for (const s of ["home","result","guard","tools","hist"]) $("v-"+s).classList.toggle("hide", s!==v);
   document.querySelectorAll("nav.bot button").forEach(b=>b.classList.toggle("on", b.dataset.v===v));
   if (v==="hist") loadHistory();
+  if (v==="guard" && $("genOut").textContent.includes("—")) genNew();
   if (v==="result" && !RESULT) $("resBody").innerHTML = `<div class="card empty"><div class="big">📋</div>مازال ما درتي حتى فحص.<br><br><button class="btn" onclick="scan('full')">ابدا فحص كامل</button></div>`;
   scrollTo({top:0});
 }
@@ -431,6 +484,57 @@ async function fixBg(){
   const r = await api("/api/fix-bg", {});
   toast(r.ok ? "✅ دابا Android ما غاديش يقتل Termux" : (r.msg || "ما نجحش"));
 }
+
+/* ───── حماية الحسابات ───── */
+const STR_COL = ["var(--bad)","var(--bad)","var(--warn)","var(--ok)","var(--ok)"];
+function pwReset(){ $("pwRes").innerHTML = ""; }
+function pwShow(){ const i=$("pwIn"); i.type = i.type==="password"?"text":"password"; }
+async function pwCheck(){
+  const pw = $("pwIn").value;
+  if (!pw){ toast("كتب كلمة سر"); return; }
+  const b = $("pwBtn"); b.disabled = true; b.innerHTML = '<span class="spin"></span> كنفحص…';
+  let r; try { r = await api("/api/pw-check", {password: pw}); } catch(e){ r = {}; }
+  b.disabled = false; b.textContent = "افحص";
+  if (!r.ok){ toast("ما نجحش"); return; }
+  const lvlIdx = ["ضعيفة جداً","ضعيفة","متوسطة","قوية","قوية بزاف"].indexOf(r.level);
+  let h = `<div class="strength"><i style="width:${(lvlIdx+1)*20}%;background:${STR_COL[Math.max(0,lvlIdx)]}"></i></div>
+    <div class="small">القوة: <b style="color:${STR_COL[Math.max(0,lvlIdx)]}">${esc(r.level)}</b></div>`;
+  if (!r.online){
+    h += `<div class="big-badge" style="background:var(--infobg);color:var(--info)">ما قدرتش نوصل للانترنت باش نفحص التسريبات</div>`;
+  } else if (r.count === 0){
+    h += `<div class="big-badge ok"><span class="n">🟢</span>ما بانتش فحتى تسريب معروف</div>`;
+  } else {
+    h += `<div class="big-badge bad"><span class="n">${r.count.toLocaleString("ar")}</span>مرة بانت فتسريبات! ما تستعملهاش، بدّلها.</div>`;
+  }
+  if (r.notes && r.notes.length) h += `<ul class="small muted" style="margin-top:8px">${r.notes.map(n=>`<li>${esc(n)}</li>`).join("")}</ul>`;
+  $("pwRes").innerHTML = h;
+}
+async function genNew(){
+  const r = await api("/api/gen-pw", {length:+$("genRange").value, symbols:$("genSym").checked, pron:$("genPron").checked});
+  if (r.ok) $("genOut").textContent = r.pw;
+}
+function copyGen(){
+  const t = $("genOut").textContent;
+  if (t.includes("—")) return;
+  navigator.clipboard?.writeText(t).then(()=>toast("تنسخات ✅"), ()=>toast("انسخها بيدك"));
+}
+async function emailCheck(){
+  const email = $("emIn").value.trim(), key = $("emKey").value.trim();
+  const b = $("emBtn"); b.disabled = true; b.innerHTML = '<span class="spin"></span> كنفحص…';
+  let r; try { r = await api("/api/email-check", {email, key}); } catch(e){ r = {}; }
+  b.disabled = false; b.textContent = "افحص البريد";
+  if (r.need_key){
+    $("emRes").innerHTML = `<div class="note">باش تفحص البريد خاصك مفتاح من <code>haveibeenpwned.com/API/Key</code>. ولكن <b>فحص كلمة السر لفوق مجاني وكيكفي</b> باش تعرف واش محمي.</div>`;
+    return;
+  }
+  if (!r.ok){ $("emRes").innerHTML = `<div class="big-badge" style="background:var(--warnbg);color:var(--warn)">${esc(r.msg||"ما نجحش")}</div>`; return; }
+  if (!r.breaches.length){ $("emRes").innerHTML = `<div class="big-badge ok"><span class="n">🟢</span>البريد ما بانش فحتى تسريب معروف</div>`; return; }
+  $("emRes").innerHTML = `<div class="big-badge bad"><span class="n">${r.breaches.length}</span>تسريبات فيهم هاد البريد</div>` +
+    r.breaches.map(x=>`<div class="item warn"><div class="ic">🟡</div><div class="body"><div class="t">${esc(x.name)} <span class="tiny">${esc(x.date)}</span></div>
+      <div class="small muted">تسرب: ${x.data.map(esc).join("، ")}</div></div></div>`).join("") +
+    `<div class="note">بدّل كلمة السر ديال هاد الحسابات، وشعل 2FA.</div>`;
+}
+
 function toggleTheme(){
   const cur = document.documentElement.dataset.theme ||
     (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
