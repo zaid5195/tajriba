@@ -194,6 +194,19 @@ def uninstall(pkg):
     return {"ok": True}
 
 
+def fix_background():
+    """كنمنعو Android يقتل Termux (Phantom Process Killer). محتاج ADB."""
+    if not F.ADB:
+        return {"ok": False, "msg": "خاص ADB يكون متصل باش ندير هادشي"}
+    F.sh("/system/bin/device_config set_sync_disabled_for_tests persistent", 10)
+    F.sh("/system/bin/device_config put activity_manager max_phantom_processes 2147483647", 10)
+    F.sh("settings put global settings_enable_monitor_phantom_procs false", 10)
+    # نحيدو Termux من تحسين البطارية
+    F.sh("dumpsys deviceidle whitelist +com.termux", 10)
+    F.sh("cmd appops set com.termux RUN_ANY_IN_BACKGROUND allow", 10)
+    return {"ok": True}
+
+
 def status():
     return {
         "version": F.VERSION,
@@ -300,6 +313,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(adb_connect(body.get("port")))
         if path == "/api/adb/pair":
             return self._json(adb_pair(body.get("port", ""), body.get("code", "")))
+        if path == "/api/fix-bg":
+            return self._json(fix_background())
         if path == "/api/adb/off":
             return self._json(adb_off())
         self._json({"error": "not found"}, 404)
@@ -326,12 +341,18 @@ def serve(fahs_module):
     print(f"  {F.BOLD}{F.W}{url}{F.N}")
     print(f"  {F.D}{ar('حل هاد الرابط فالمتصفح. باش توقفها: Ctrl + C')}{F.N}")
     print(f"  {F.D}{ar('خلي Termux محلول فالخلفية ملي كتستعمل الموقع.')}{F.N}")
+    # كنمنعو التيليفون ينعس Termux ملي يكون فالخلفية
+    if F.shutil.which("termux-wake-lock"):
+        F.run("termux-wake-lock", 5)
+    if F.ADB or (F.detect_adb() or F.ADB):
+        fix_background()
     if F.shutil.which("termux-open-url") and "--no-open" not in sys.argv:
         F.run(f"termux-open-url {url}", 5)
-    threading.Thread(target=F.detect_adb, daemon=True).start()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
         print("\n  " + ar("تسدات لوحة التحكم."))
     finally:
         srv.server_close()
+        if F.shutil.which("termux-wake-unlock"):
+            F.run("termux-wake-unlock", 5)

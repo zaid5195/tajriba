@@ -210,6 +210,12 @@ ol.how{padding:0 20px 0 0;margin:8px 0} ol.how li{margin:6px 0}
     <div class="note">ملي تسالي من الفحص، طفي ADB. إلا بقا شاعل، أي واحد معاك فالويفي يقدر يحاول يتصل بالتيليفون.</div>
   </div>
   <div class="card">
+    <h2>🔋 Termux كيتسد بوحدو؟</h2>
+    <div class="small muted">Android كيقتل Termux ملي كيكون فالخلفية. هاد الزر كيمنعو (محتاج ADB).</div>
+    <button class="btn ghost" style="margin-top:12px" onclick="fixBg()">منع Android من سد Termux</button>
+    <div class="note">وزيد: الإعدادات ← التطبيقات ← Termux ← البطارية ← <b>السماح بالنشاط فالخلفية</b>.</div>
+  </div>
+  <div class="card">
     <h2>⚙️ حل الإعدادات</h2>
     <div class="grid">
       <button class="tile" onclick="openScreen('devonly')"><div class="ic">👨‍💻</div><b>خيارات المطور</b></button>
@@ -420,6 +426,10 @@ async function adbOff(){
   const r = await api("/api/adb/off", {});
   toast(r.ok ? "تطفى ADB ✅" : (r.msg||"ADB ما متصلش"));
   setTimeout(refresh, 2500);
+}
+async function fixBg(){
+  const r = await api("/api/fix-bg", {});
+  toast(r.ok ? "✅ دابا Android ما غاديش يقتل Termux" : (r.msg || "ما نجحش"));
 }
 function toggleTheme(){
   const cur = document.documentElement.dataset.theme ||

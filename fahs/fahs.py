@@ -1014,7 +1014,7 @@ def check_wifi():
     base = ".".join(w["ip"].split(".")[:3])
     targets = [f"{base}.{i}" for i in range(1, 255)]
     rline(f"كنقلب على الأجهزة فـ {base}.0/24 ... (حتى 30 ثانية)", D)
-    with cf.ThreadPoolExecutor(64) as ex:
+    with cf.ThreadPoolExecutor(12) as ex:   # قليل باش Android ما يقتلش Termux
         live = [ip for ip, up in zip(targets, ex.map(alive, targets)) if up]
 
     neigh = {}
@@ -1029,7 +1029,7 @@ def check_wifi():
         live.append(w["ip"])
     live.sort(key=lambda x: int(x.split(".")[-1]))
 
-    with cf.ThreadPoolExecutor(32) as ex:
+    with cf.ThreadPoolExecutor(12) as ex:
         ports = dict(zip(live, ex.map(open_ports, live)))
         names = dict(zip(live, ex.map(hostname, live)))
 
@@ -1529,6 +1529,13 @@ def run_steps(mode):
 
 
 def main():
+    if "--fix-bg" in sys.argv:
+        import fahs_web
+        fahs_web.F = sys.modules[__name__]
+        detect_adb()
+        r = fahs_web.fix_background()
+        print(_ar("✅ دابا Android ما غاديش يقتل Termux" if r["ok"] else r["msg"]))
+        return
     if "--web" in sys.argv:
         import fahs_web
         fahs_web.serve(sys.modules[__name__])
