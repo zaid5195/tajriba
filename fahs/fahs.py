@@ -14,7 +14,7 @@ import textwrap
 import shlex
 import subprocess
 
-VERSION = "1.0"
+VERSION = "2.0"
 
 # ───────────────────────── العربية ─────────────────────────
 try:
@@ -39,6 +39,11 @@ WIDTH = max(30, min(shutil.get_terminal_size((45, 20)).columns, 70))
 REPORT = []          # النص العادي ديال التقرير (باش يتحفظ فملف)
 FINDINGS = []        # (مستوى, نص, نصيحة)
 COUNTS = {"ok": 0, "warn": 0, "bad": 0}
+RISKY = {}           # تطبيق ← السبب (باش نقترحو المسح فاللخر)
+
+
+def flag(pkg, why):
+    RISKY.setdefault(pkg, why)
 ICONS = {"ok": "🟢", "warn": "🟡", "bad": "🔴", "info": "🔵", "sub": "  •"}
 COLORS = {"ok": G, "warn": Y, "bad": R, "info": C, "sub": W}
 
@@ -84,14 +89,36 @@ def sub(text):
     show(text, "sub")
 
 
+STEP = {"i": 0, "total": 0}
+
+
+def rline(text, color=""):
+    """سطر عربي محاذي لليمين."""
+    v = _ar(text)
+    print(f"{color}{' ' * max(0, WIDTH - 2 - len(v))}{v}{N}")
+
+
 def header(title):
+    title = re.sub(r"^\d+\.\s*", "", title)
     REPORT.append("")
     REPORT.append(f"=== {title} ===")
     print()
-    print(f"{B}{'═' * (WIDTH - 2)}{N}")
-    t = _ar(title)
-    print(f"{BOLD}{W}{' ' * max(0, WIDTH - 3 - len(t))}{t}{N}")
-    print(f"{B}{'═' * (WIDTH - 2)}{N}")
+    if STEP["total"] and title != "الخلاصة":
+        STEP["i"] += 1
+        i, t = STEP["i"], STEP["total"]
+        bar_w = 12
+        done = round(bar_w * i / t)
+        bar = f"{G}{'▰' * done}{D}{'▱' * (bar_w - done)}{N}"
+        label = f" {i}/{t}"
+    else:
+        bar, label = "", ""
+    inner = WIDTH - 3
+    print(f"{B}╭{'─' * inner}╮{N}")
+    v = _ar(title)
+    print(f"{B}│{N}{' ' * max(1, inner - 1 - len(v))}{BOLD}{W}{v}{N} {B}│{N}")
+    if bar:
+        print(f"{B}│{N} {bar}{D}{label}{N}{' ' * max(0, inner - 13 - len(label))}{B}│{N}")
+    print(f"{B}╰{'─' * inner}╯{N}")
 
 
 # ───────────────────────── أدوات ─────────────────────────
@@ -439,6 +466,7 @@ def check_apps():
     for p in PACKAGES:
         if p in KNOWN_BAD:
             clean = False
+            flag(p, KNOWN_BAD[p])
             bad(f"تطبيق خبيث معروف: {p}",
                 f"{KNOWN_BAD[p]}. مسحو دابا، وبدّل كلمات السر من جهاز آخر.")
 
@@ -449,6 +477,7 @@ def check_apps():
         bad("لقيت تطبيقات تجسس معروفة (Stalkerware):",
             "هاد التطبيقات كيقراو الرسائل والمكالمات والموقع. مسحهم وبدّل كلمات السر.")
         for p in stalk:
+            flag(p, "تطبيق تجسس")
             sub(p)
 
     sus = [p for p in PACKAGES if p not in stalk and p not in KNOWN_BAD
@@ -458,9 +487,13 @@ def check_apps():
         warn("تطبيقات سميتهم مشبوهة — راجعهم:",
              "يقدر يكونو عاديين (بحال تطبيق مراقبة البطارية)، ولكن تأكد منهم.")
         for p in sus:
+            flag(p, "سمية مشبوهة")
             sub(p)
 
     mods = [f"{MOD_STORES[p]} ({p})" for p in PACKAGES if p in MOD_STORES]
+    for p in PACKAGES:
+        if p in MOD_STORES:
+            flag(p, "متجر تطبيقات مهكرة")
     if mods:
         clean = False
         warn("عندك متجر ديال التطبيقات المهكرة (مودات):",
@@ -525,6 +558,165 @@ def check_apps():
                  "هاد الصلاحية كتمنع مسح التطبيق. حيدها من الإعدادات ← الأمان.")
             for a in third:
                 sub(a)
+
+
+# ───────────────────────── الصلاحيات والتطبيقات المخبية ─────────────────────────
+PERMS = {
+    "android.permission.READ_SMS": "الرسائل",
+    "android.permission.RECEIVE_SMS": "الرسائل",
+    "android.permission.SEND_SMS": "صيفط رسائل",
+    "android.permission.READ_CALL_LOG": "سجل المكالمات",
+    "android.permission.RECORD_AUDIO": "الميكرو",
+    "android.permission.CAMERA": "الكاميرا",
+    "android.permission.ACCESS_FINE_LOCATION": "الموقع",
+    "android.permission.ACCESS_BACKGROUND_LOCATION": "الموقع فالخلفية",
+    "android.permission.READ_CONTACTS": "جهات الاتصال",
+}
+SENSITIVE = {"الرسائل", "صيفط رسائل", "سجل المكالمات", "الموقع فالخلفية"}
+
+
+def parse_dumpsys_packages():
+    """كنقراو الصلاحيات وتاريخ التنصيب ديال كاع التطبيقات فمرة وحدة."""
+    out = sh("dumpsys package packages 2>/dev/null", 90)
+    data, cur = {}, None
+    for line in out.splitlines():
+        m = re.match(r"\s*Package \[([^\]]+)\]", line)
+        if m:
+            cur = data.setdefault(m.group(1), {"perms": set(), "installed": None})
+            continue
+        if not cur:
+            continue
+        m = re.search(r"firstInstallTime=(\d{4}-\d\d-\d\d)", line)
+        if m and not cur["installed"]:
+            cur["installed"] = m.group(1)
+            continue
+        m = re.match(r"\s*(android\.permission\.[A-Z_]+): granted=true", line)
+        if m and m.group(1) in PERMS:
+            cur["perms"].add(PERMS[m.group(1)])
+    return data
+
+
+def third_party_user_apps():
+    return [p for p in PACKAGES if not is_oem(p) and not p.startswith("com.termux")]
+
+
+def check_permissions():
+    header("الصلاحيات الخطيرة")
+    if not ADB:
+        info("هاد الفحص محتاج وضع ADB (شوف: fahs --help)")
+        return
+    data = parse_dumpsys_packages()
+    if not data:
+        info("ما قدرتش نقرا الصلاحيات")
+        return
+    PKG_INFO.update(data)
+    apps = third_party_user_apps()
+    side = {p for p in apps if PACKAGES[p]["installer"] not in TRUSTED_INSTALLERS}
+
+    rows = []
+    for p in apps:
+        perms = data.get(p, {}).get("perms", set())
+        if not perms:
+            continue
+        risk = len(perms) + 3 * len(perms & SENSITIVE) + (3 if p in side else 0)
+        rows.append((risk, p, perms))
+    rows.sort(reverse=True)
+
+    danger = [(p, perms) for r, p, perms in rows
+              if p in side and (perms & SENSITIVE
+                                or {"الميكرو", "الكاميرا", "الموقع"} <= perms)]
+    if danger:
+        warn("تطبيقات من برا المتجر وعندهم صلاحيات خطيرة:",
+             "تطبيق APK عندو الرسائل ولا الميكرو والكاميرا والموقع بجوج يقدر يتجسس عليك. "
+             "إلا ما محتاجش الصلاحية، حيدها: الإعدادات ← التطبيقات ← الصلاحيات.")
+        for p, perms in danger:
+            flag(p, "صلاحيات خطيرة")
+            sub(f"{p}: {'، '.join(sorted(perms))}")
+    else:
+        ok("حتى تطبيق من برا المتجر ما عندو صلاحيات خطيرة")
+
+    top = rows[:6]
+    if top:
+        info("التطبيقات لي عندهم أكثر صلاحيات:")
+        for r, p, perms in top:
+            sub(f"{p}: {'، '.join(sorted(perms))}")
+
+    # التطبيقات المخبية (بلا أيقونة)
+    out = sh("cmd package query-activities --brief -a android.intent.action.MAIN "
+             "-c android.intent.category.LAUNCHER 2>/dev/null", 30)
+    launch = set(re.findall(r"^\s*([a-zA-Z0-9_.]+)/", out, re.M))
+    if launch:
+        hidden = [p for p in apps if p not in launch]
+        if hidden:
+            warn(f"{len(hidden)} تطبيق ما عندهمش أيقونة (مخبيين):",
+                 "تطبيقات التجسس كتخبي الأيقونة ديالها. شي وحدين عاديين (كيبورد، إضافات)، "
+                 "ولكن إلا لقيتي شي واحد ما عارفوش، مسحو.")
+            for p in hidden:
+                flag(p, "تطبيق مخبي")
+                sub(p)
+        else:
+            ok("كاع التطبيقات عندهم أيقونة (حتى واحد ما مخبي)")
+
+    # التطبيقات الجداد
+    week = (datetime.date.today() - datetime.timedelta(days=7)).isoformat()
+    new = sorted((data[p]["installed"], p) for p in apps
+                 if data.get(p, {}).get("installed") and data[p]["installed"] >= week)
+    if new:
+        info("تطبيقات تنصبو فهاد السيمانة:")
+        for d, p in new:
+            sub(f"{p} ({d})")
+
+
+PKG_INFO = {}
+STATE_DIR = os.path.join(HOME, ".fahs")
+STATE = os.path.join(STATE_DIR, "last.json")
+
+
+def check_changes():
+    header("شنو تبدل من الفحص لي فات")
+    if not PACKAGES:
+        info("ما كايناش لائحة التطبيقات باش نقارنو")
+        return
+    now = sorted(PACKAGES)
+    old = None
+    try:
+        with open(STATE, encoding="utf-8") as f:
+            old = json.load(f)
+    except Exception:
+        pass
+    if not old:
+        info("هادا أول فحص. المرة الجاية غادي نقولك شنو تزاد ولا تمسح.")
+    else:
+        added = sorted(set(now) - set(old.get("packages", [])))
+        removed = sorted(set(old.get("packages", [])) - set(now))
+        info(f"الفحص لي فات: {old.get('date', '?')} (النقطة: {old.get('score', '?')})")
+        if added:
+            warn(f"{len(added)} تطبيق جديد من الفحص لي فات:",
+                 "إلا شي واحد منهم ما نتا لي نصبتيه، هادي علامة خطيرة.")
+            for p in added:
+                sub(p)
+        if removed:
+            info(f"{len(removed)} تطبيق تمسح:")
+            for p in removed[:10]:
+                sub(p)
+        if not added and not removed:
+            ok("حتى تطبيق ما تزاد ولا تمسح")
+    STATE_NEW.update(packages=now)
+
+
+STATE_NEW = {}
+
+
+def save_state(score):
+    if not STATE_NEW:
+        return
+    STATE_NEW.update(date=f"{datetime.datetime.now():%Y-%m-%d %H:%M}", score=score)
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        with open(STATE, "w", encoding="utf-8") as f:
+            json.dump(STATE_NEW, f)
+    except Exception:
+        pass
 
 
 # ───────────────────────── 5. الشبكة ─────────────────────────
@@ -779,8 +971,23 @@ def check_health():
 
 
 # ───────────────────────── الخلاصة ─────────────────────────
+def score():
+    return max(0, 100 - 25 * COUNTS["bad"] - 5 * COUNTS["warn"])
+
+
 def summary():
     header("الخلاصة")
+    sc = score()
+    col = G if sc >= 80 else Y if sc >= 50 else R
+    bar_w = WIDTH - 14
+    done = round(bar_w * sc / 100)
+    print()
+    rline("نقطة الأمان", BOLD + W)
+    print(f"  {col}{'█' * done}{D}{'░' * (bar_w - done)}{N} {BOLD}{col}{sc}/100{N}")
+    print()
+    chips = (f"{G}🟢 {COUNTS['ok']}{N}   {Y}🟡 {COUNTS['warn']}{N}   {R}🔴 {COUNTS['bad']}{N}")
+    print(f"  {chips}")
+    REPORT.append(f"نقطة الأمان: {sc}/100 — 🟢 {COUNTS['ok']}  🟡 {COUNTS['warn']}  🔴 {COUNTS['bad']}")
     print()
     if COUNTS["bad"]:
         show(f"كاينين {COUNTS['bad']} مشاكل خطيرة و {COUNTS['warn']} تنبيهات — خصك تشوفهم دابا", "bad")
@@ -824,31 +1031,141 @@ def save_report():
                 continue
 
 
+def ask(prompt):
+    rline(prompt, C)
+    try:
+        ans = input(f"{BOLD}{W}  › {N}").strip()
+        return ans.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789"))
+    except EOFError:
+        return ""
+
+
+def uninstall_menu():
+    """كنحلو نافذة المسح ديال Android — نتا لي كتأكد."""
+    if not RISKY:
+        return
+    print()
+    rline("بغيتي تمسح شي تطبيق من هادو؟", BOLD + W)
+    items = sorted(RISKY.items())
+    for i, (p, why) in enumerate(items, 1):
+        print(f"  {Y}{i:>2}{N}  {p}  {D}{_ar(why)}{N}")
+    ans = ask("كتب الأرقام مفروقين بفاصلة (مثلاً 1,3) ولا Enter باش تخرج")
+    for part in re.split(r"[,\s،]+", ans):
+        if part.isdigit() and 1 <= int(part) <= len(items):
+            pkg = items[int(part) - 1][0]
+            sh(f"am start -a android.intent.action.DELETE -d package:{pkg}", 10)
+            rline(f"تحلات نافذة المسح ديال {pkg} — أكد فالتيليفون", G)
+            ask("ضغط Enter ملي تسالي")
+
+
+def adb_off_menu():
+    if not ADB:
+        return
+    print()
+    ans = ask("بغيتي نطفي ADB وتصحيح الأخطاء دابا؟ (y/n)")
+    if ans.lower() in ("y", "yes", "اه", "ه", "نعم", "1"):
+        sh("settings put global adb_wifi_enabled 0", 5)
+        sh("settings put global adb_enabled 0", 5)
+        rline("تطفى ADB ✅ (الاتصال غادي يتقطع، هادشي عادي)", G)
+
+
 def banner():
-    print(f"{C}{BOLD}")
-    print("  ╔═╗╔═╗╦ ╦╔═╗")
-    print("  ╠╣ ╠═╣╠═╣╚═╗")
-    print("  ╩  ╩ ╩╩ ╩╚═╝  v" + VERSION)
-    print(N, end="")
-    for t, col in (("أداة فحص أمان التيليفون", W), ("كنفحص... صبر شوية (حتى دقيقة)", D)):
-        v = _ar(t)
-        print(f"{col}{' ' * max(0, WIDTH - 3 - len(v))}{v}{N}")
+    w = WIDTH - 3
+    print()
+    print(f"{C}╭{'─' * w}╮{N}")
+    logo = ["╔═╗╔═╗╦ ╦╔═╗", "╠╣ ╠═╣╠═╣╚═╗", "╩  ╩ ╩╩ ╩╚═╝"]
+    for l in logo:
+        pad = (w - len(l)) // 2
+        print(f"{C}│{N}{' ' * pad}{BOLD}{C}{l}{N}{' ' * (w - pad - len(l))}{C}│{N}")
+    t = _ar("أداة فحص أمان التيليفون")
+    pad = (w - len(t)) // 2
+    print(f"{C}│{N}{' ' * pad}{W}{t}{N}{' ' * (w - pad - len(t))}{C}│{N}")
+    v = f"v{VERSION}"
+    pad = (w - len(v)) // 2
+    print(f"{C}│{N}{' ' * pad}{D}{v}{N}{' ' * (w - pad - len(v))}{C}│{N}")
+    print(f"{C}╰{'─' * w}╯{N}")
+
+
+MENU = [
+    ("1", "فحص كامل", "full"),
+    ("2", "فحص سريع (بلا الملفات)", "quick"),
+    ("3", "التطبيقات والصلاحيات بوحدهم", "apps"),
+    ("4", "مسح تطبيق", "uninstall"),
+    ("5", "طفي ADB وتصحيح الأخطاء", "adboff"),
+    ("0", "خروج", "exit"),
+]
+
+
+def menu():
+    print()
+    for key, label, _ in MENU:
+        v = _ar(label)
+        print(f"{' ' * max(0, WIDTH - 8 - len(v))}{W}{v}{N}  {BOLD}{C}[{key}]{N}")
+    ans = ask("ختار رقم")
+    for key, _, mode in MENU:
+        if ans == key:
+            return mode
+    return "full" if ans == "" else "exit"
+
+
+HELP = """fahs — فحص أمان التيليفون
+
+  fahs            القائمة
+  fahs --full     فحص كامل مباشرة
+  fahs --quick    فحص سريع
+  fahs --apps     التطبيقات والصلاحيات
+  --no-color      بلا ألوان
+  --no-adb        ما تستعملش ADB
+
+وضع ADB (فحص كامل للتطبيقات والصلاحيات):
+  pkg install android-tools
+  خيارات المطور ← تصحيح الأخطاء اللاسلكي ← إقران بالرمز
+  adb pair localhost:PORT     ثم    adb connect localhost:PORT
+"""
 
 
 def main():
     if "--help" in sys.argv or "-h" in sys.argv:
-        print("fahs [--no-color]")
+        for line in HELP.splitlines():
+            print(_ar(line) if re.search(r"[\u0600-\u06FF]", line) else line)
         return
     banner()
     detect_adb()
     if ADB:
         show(f"وضع ADB خدام ({ADB}) — الفحص غادي يكون كامل", "ok")
     else:
-        show("وضع عادي (بلا ADB) — شي فحوصات يقدرو يكونو ناقصين", "info")
+        show("وضع عادي (بلا ADB) — شي فحوصات ناقصين. شوف fahs --help", "info")
+
+    mode = next((m for f, m in (("--full", "full"), ("--quick", "quick"),
+                                ("--apps", "apps")) if f in sys.argv), None)
+    interactive = sys.stdin.isatty() and mode is None
+    if mode is None:
+        mode = menu() if interactive else "full"
+    if mode == "exit":
+        return
+
+    rline("كنقرا لائحة التطبيقات...", D)
     load_packages()
     load_uid_map()
-    for step in (check_device, check_root, check_adb, check_apps,
-                 check_network, check_files, check_termux, check_health):
+
+    if mode == "uninstall":
+        for p in third_party_user_apps():
+            flag(p, "")
+        uninstall_menu()
+        return
+    if mode == "adboff":
+        adb_off_menu()
+        return
+
+    steps = {
+        "full": (check_device, check_root, check_adb, check_apps, check_permissions,
+                 check_changes, check_network, check_files, check_termux, check_health),
+        "quick": (check_device, check_root, check_adb, check_apps,
+                  check_changes, check_network, check_termux),
+        "apps": (check_apps, check_permissions, check_changes),
+    }[mode]
+    STEP["total"] = len(steps)
+    for step in steps:
         try:
             step()
         except KeyboardInterrupt:
@@ -857,6 +1174,10 @@ def main():
             info(f"وقع مشكل فهاد الفحص: {e}")
     summary()
     save_report()
+    save_state(score())
+    if interactive:
+        uninstall_menu()
+        adb_off_menu()
 
 
 if __name__ == "__main__":
