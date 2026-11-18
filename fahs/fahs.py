@@ -146,10 +146,159 @@ def detect_adb():
             if l.strip().endswith("device")]
     local = [d for d in devs if d.startswith(("localhost", "127.0.0.1"))]
     pick = (local or [d for d in devs if d.startswith("emulator-")] or devs[:1])
+    if not pick:
+        # كنحاولو نتصلو بوحدنا: الإقران كيبقى محفوظ ما دام تصحيح الأخطاء اللاسلكي شاعل
+        for port in sorted(adbd_ports() or {5555}):
+            if "connected" in run(f"adb connect localhost:{port} 2>&1", 6) and \
+                    run(f"adb -s localhost:{port} shell echo ok 2>/dev/null", 8) == "ok":
+                pick = [f"localhost:{port}"]
+                break
     if pick:
         test = run(f"adb -s {pick[0]} shell echo ok 2>/dev/null", 10)
         if test == "ok":
             ADB = pick[0]
+
+
+def adbd_ports():
+    """البورتات لي حالّهم adbd (كيخدم بـ uid 2000). كترجع None إلا ما قدرناش نقراو."""
+    ports, ok_read = set(), False
+    for f in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            with open(f) as fh:
+                lines = fh.read().splitlines()[1:]
+        except Exception:
+            continue
+        ok_read = True
+        for line in lines:
+            pr = line.split()
+            if len(pr) > 7 and pr[3] == "0A" and pr[7] == "2000":
+                ports.add(int(pr[1].split(":")[1], 16))
+    return ports if ok_read else None
+
+
+def open_screen(*intents):
+    """كنحلو صفحة فالإعدادات. كنجربو بزاف ديال الطرق حيت كل ماركة مختلفة."""
+    for it in intents:
+        flag_ = "-n" if "/" in it else "-a"
+        out = run(f"am start {flag_} {shlex.quote(it)} 2>&1", 10)
+        if out and "Error" not in out and "Exception" not in out:
+            return True
+    return False
+
+
+def yes(ans):
+    return ans.lower() in ("y", "yes", "o", "oui", "اه", "ه", "نعم", "ايه", "إيه", "1", "")
+
+
+def wait_new_port(before, seconds=120):
+    """كنتسناو حتى يتحل بورت جديد ديال adbd (نافذة الإقران)."""
+    import time
+    end = time.time() + seconds
+    spin = "◐◓◑◒"
+    i = 0
+    while time.time() < end:
+        now = adbd_ports() or set()
+        new = now - before
+        if new:
+            print()
+            return sorted(new)[0]
+        sys.stdout.write(f"\r  {C}{spin[i % 4]}{N} {D}{_ar('كنتسنى نافذة رمز الإقران...')}{N}   ")
+        sys.stdout.flush()
+        i += 1
+        time.sleep(0.5)
+    print()
+    return None
+
+
+def adb_setup():
+    """مساعد كيشعل ADB خطوة بخطوة."""
+    global ADB
+    header("تشغيل وضع ADB")
+    info("Android ما كيخليش حتى تطبيق يشعل ADB بوحدو. "
+         "أنا غادي نحل ليك الصفحات ونقول ليك فين تضغط، ونتا لي كتعطي السماح.")
+
+    if not shutil.which("adb"):
+        if not yes(ask("خاص android-tools. نصبو دابا؟ (Enter = اه)")):
+            return False
+        os.system("pkg install -y android-tools")
+        if not shutil.which("adb"):
+            bad("ما تنصبش android-tools", "جرب بيدك: pkg install android-tools")
+            return False
+
+    detect_adb()
+    if ADB:
+        ok(f"ADB راه متصل ({ADB})")
+        return True
+
+    # 1. خيارات المطور
+    print()
+    rline("الخطوة 1: خيارات المطور", BOLD + W)
+    dev = setting("global", "development_settings_enabled")
+    if dev != "1":
+        ans = ask("واش خيارات المطور مشعلين عندك؟ (اه/لا)")
+        if not yes(ans):
+            open_screen("android.settings.DEVICE_INFO_SETTINGS")
+            sub("حليت ليك «حول الهاتف».")
+            sub("ضغط 7 مرات على «رقم الإصدار» (Build number). فـ realme كاين فـ «الإصدار».")
+            sub("دخل الكود ديال التيليفون إلا طلبو، ومن بعد رجع لهنا.")
+            ask("ضغط Enter ملي تسالي")
+
+    # 2. تصحيح الأخطاء اللاسلكي
+    print()
+    rline("الخطوة 2: تصحيح الأخطاء اللاسلكي", BOLD + W)
+    sub("قسم الشاشة على جوج دابا: Termux لتحت والإعدادات لفوق.")
+    sub("(ضغط على زر التطبيقات المفتوحة ← الأيقونة ديال Termux ← تقسيم الشاشة)")
+    ask("ضغط Enter ونحل ليك خيارات المطور")
+    open_screen("com.android.settings/.Settings$WirelessDebuggingActivity",
+                "android.settings.APPLICATION_DEVELOPMENT_SETTINGS")
+    sub("شعل «تصحيح الأخطاء اللاسلكي» (Wireless debugging) ووافق على «السماح».")
+    ask("ضغط Enter ملي تشعلو")
+    # إلا كان مقرون من قبل، يقدر يتصل دابا بلا رمز
+    detect_adb()
+    if ADB:
+        ok(f"ADB متصل ({ADB}) — دابا الفحص غادي يكون كامل 🎉")
+        return True
+
+    # 3. الإقران
+    before = adbd_ports()
+    sub("دابا ضغط على الكتابة «تصحيح الأخطاء اللاسلكي»، ومن بعد «إقران الجهاز باستخدام رمز الإقران».")
+    sub("خلي النافذة لي فيها الرمز مفتوحة — إلا سديتيها الرمز كيموت.")
+    port = None
+    if before is not None:
+        port = wait_new_port(before)
+        if port:
+            ok(f"لقيت نافذة الإقران أوتوماتيكياً (البورت {port})")
+    if not port:
+        ans = ask("كتب البورت لي بان ليك تحت «عنوان IP والمنفذ» فنافذة الإقران (الرقم من بعد :)")
+        port = re.sub(r".*:", "", ans).strip()
+        if not port.isdigit():
+            bad("البورت غالط", "عاود من القائمة ← تشغيل ADB.")
+            return False
+    code = re.sub(r"\D", "", ask("كتب رمز الإقران (6 أرقام)"))
+    out = run(f"adb pair localhost:{port} {code} 2>&1", 20)
+    if "Successfully" not in out:
+        bad("الإقران ما نجحش", "تأكد من الرمز، وأن النافذة بقات مفتوحة (ما تسدهاش)، وعاود.")
+        sub(out[-120:])
+        return False
+    ok("الإقران نجح ✅")
+
+    # 4. الاتصال
+    import time
+    time.sleep(1)
+    ports = sorted((adbd_ports() or set()) - {int(port)})
+    if not ports:
+        ans = ask("كتب البورت لي فالصفحة ديال «تصحيح الأخطاء اللاسلكي» (فوق، من بعد :)")
+        p2 = re.sub(r".*:", "", ans).strip()
+        ports = [int(p2)] if p2.isdigit() else []
+    for p2 in ports:
+        if "connected" in run(f"adb connect localhost:{p2} 2>&1", 8):
+            detect_adb()
+            if ADB:
+                ok(f"ADB متصل ({ADB}) — دابا الفحص غادي يكون كامل 🎉")
+                sub("المرة الجاية غادي نتصل بوحدي، غير خلي «تصحيح الأخطاء اللاسلكي» شاعل.")
+                return True
+    bad("الإقران نجح ولكن الاتصال لا", "عاود جرب: adb connect localhost:البورت")
+    return False
 
 
 def sh(cmd, timeout=20):
@@ -1276,7 +1425,8 @@ MENU = [
     ("3", "التطبيقات والصلاحيات بوحدهم", "apps"),
     ("4", "فحص شبكة الويفي", "wifi"),
     ("5", "مسح تطبيق", "uninstall"),
-    ("6", "طفي ADB وتصحيح الأخطاء", "adboff"),
+    ("6", "شعل وضع ADB (فحص كامل)", "adbsetup"),
+    ("7", "طفي ADB وتصحيح الأخطاء", "adboff"),
     ("0", "خروج", "exit"),
 ]
 
@@ -1302,6 +1452,7 @@ HELP = """fahs — فحص أمان التيليفون
   fahs --wifi     فحص شبكة الويفي
   --no-color      بلا ألوان
   --no-adb        ما تستعملش ADB
+  --setup-adb     مساعد تشغيل ADB خطوة بخطوة
 
 وضع ADB (فحص كامل للتطبيقات والصلاحيات):
   pkg install android-tools
@@ -1322,6 +1473,9 @@ def main():
     else:
         show("وضع عادي (بلا ADB) — شي فحوصات ناقصين. شوف fahs --help", "info")
 
+    if "--setup-adb" in sys.argv:
+        adb_setup()
+        return
     mode = next((m for f, m in (("--full", "full"), ("--quick", "quick"),
                                 ("--apps", "apps"), ("--wifi", "wifi"))
                  if f in sys.argv), None)
@@ -1330,6 +1484,15 @@ def main():
         mode = menu() if interactive else "full"
     if mode == "exit":
         return
+    if mode == "adbsetup":
+        adb_setup()
+        if not ADB or not yes(ask("نبداو الفحص الكامل دابا؟ (Enter = اه)")):
+            return
+        mode = "full"
+    elif (interactive and not ADB and mode in ("full", "apps")
+          and "--no-adb" not in sys.argv):
+        if yes(ask("وضع ADB طافي، والفحص غادي يكون ناقص. نشعلوه دابا؟ (Enter = اه / n = لا)")):
+            adb_setup()
 
     rline("كنقرا لائحة التطبيقات...", D)
     load_packages()
