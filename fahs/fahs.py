@@ -16,7 +16,7 @@ import socket
 import concurrent.futures as cf
 import subprocess
 
-VERSION = "2.1"
+VERSION = "2.2"
 
 # ───────────────────────── العربية ─────────────────────────
 try:
@@ -1567,6 +1567,130 @@ def check_accounts_tty():
             return
 
 
+# ───────────────────────── تحكم فالصوت والسماعات ─────────────────────────
+AUDIO_STREAMS = {"music": "الوسائط (فيديو/موسيقى)", "call": "المكالمات",
+                 "ring": "الرنة", "notification": "الإشعارات",
+                 "alarm": "المنبه", "system": "النظام"}
+
+
+def termux_volume():
+    """مستويات الصوت عبر Termux:API (بلا ADB). None إلا ما كانش مثبت."""
+    if not shutil.which("termux-volume"):
+        return None
+    try:
+        return json.loads(run("termux-volume", 8))
+    except Exception:
+        return None
+
+
+def bt_connected():
+    """واش كاين جهاز بلوتوث صوتي موصول (محتاج ADB)."""
+    if not ADB:
+        return None
+    out = sh("dumpsys bluetooth_manager 2>/dev/null", 10)
+    return bool(re.search(r"state: *connected", out, re.I)) or "A2DP" in out
+
+
+def audio_status():
+    st = {"termux": termux_volume(), "adb": bool(ADB)}
+    if ADB:
+        st["abs_vol"] = sh("settings get global bluetooth_disable_absolute_volume", 6)
+        st["balance"] = sh("settings get system master_balance", 6)
+        st["mono"] = sh("settings get system master_mono", 6)
+        st["bt"] = bt_connected()
+    return st
+
+
+def audio_max():
+    """كيزيد الصوت للماكس فكل القنوات."""
+    done = []
+    tv = termux_volume()
+    if tv:
+        for s in tv:
+            run(f"termux-volume {s['stream']} {s['max_volume']}", 6)
+        done.append("termux")
+    if ADB:
+        out = sh("media volume --stream 3 --get", 6)
+        m = re.search(r"\[0,\s*(\d+)\]", out)
+        maxv = int(m.group(1)) if m else 15
+        for stream in (3, 4, 2, 5):   # music, alarm, ring, notification
+            sh(f"media volume --stream {stream} --set {maxv}", 6)
+        done.append("adb")
+    return {"ok": bool(done), "via": done, "msg": "" if done
+            else "خاص Termux:API ولا وضع ADB"}
+
+
+def audio_bt_fix(enable=True):
+    """كيطفي «الصوت المطلق» للبلوتوث — كيحل مشكل الصوت الضعيف فالسماعات."""
+    if not ADB:
+        return {"ok": False, "msg": "هاد الإصلاح محتاج وضع ADB"}
+    sh(f"settings put global bluetooth_disable_absolute_volume {1 if enable else 0}", 6)
+    return {"ok": True, "reconnect": True}
+
+
+def audio_balance_center():
+    if not ADB:
+        return {"ok": False, "msg": "محتاج وضع ADB"}
+    sh("settings put system master_balance 0.0", 6)
+    return {"ok": True}
+
+
+def audio_mono(on):
+    if not ADB:
+        return {"ok": False, "msg": "محتاج وضع ADB"}
+    sh(f"settings put system master_mono {1 if on else 0}", 6)
+    return {"ok": True}
+
+
+def audio_menu():
+    header("تحكم فالصوت والسماعات")
+    st = audio_status()
+    tv = st["termux"]
+    if tv:
+        info("مستوى الصوت دابا:")
+        for s in tv:
+            name = AUDIO_STREAMS.get(s["stream"], s["stream"])
+            bar = "▰" * round(10 * s["volume"] / max(1, s["max_volume"]))
+            sub(f"{name}: {s['volume']}/{s['max_volume']}  {bar}")
+    elif not ADB:
+        warn("باش نتحكمو فالصوت خاص Termux:API ولا وضع ADB",
+             "نصب: pkg install termux-api + تطبيق Termux:API من F-Droid.")
+    if ADB and st.get("bt"):
+        info("كاين جهاز بلوتوث موصول — إلا كان صوتو ضعيف، جرب إصلاح البلوتوث [2]")
+
+    while True:
+        print()
+        rline("[1] زيد الصوت للماكس", C)
+        rline("[2] صلح صوت سماعات البلوتوث الضعيف", C)
+        rline("[3] وسّط التوازن (يسار/يمين بحال بحال)", C)
+        rline("[4] صوت أحادي مونو (إلا كانت سماعة وحدة خدامة)", C)
+        rline("[5] رجّع الصوت لستيريو عادي", C)
+        rline("[0] رجوع", C)
+        c = ask("ختار")
+        if c == "1":
+            r = audio_max()
+            ok("زدت الصوت للماكس فكل القنوات 🔊") if r["ok"] else warn(r["msg"])
+        elif c == "2":
+            r = audio_bt_fix(True)
+            if r["ok"]:
+                ok("طفيت «الصوت المطلق» للبلوتوث 🔵")
+                sub("دابا: اقطع السماعة ووصلها من جديد، ومن بعد زيد الصوت. خاصو يولي أقوى.")
+            else:
+                warn(r["msg"])
+        elif c == "3":
+            r = audio_balance_center()
+            ok("وسّطت التوازن ⚖️ (الصوت بحال بحال فالجوج جيهات)") if r["ok"] else warn(r["msg"])
+        elif c == "4":
+            r = audio_mono(True)
+            ok("شعلت الصوت الأحادي (مونو) 🔈 — الجوج جيهات كيوصلهم نفس الصوت") if r["ok"] else warn(r["msg"])
+        elif c == "5":
+            audio_mono(False)
+            audio_balance_center()
+            ok("رجّعت الصوت لستيريو عادي") if ADB else warn("محتاج وضع ADB")
+        else:
+            return
+
+
 def banner():
     w = WIDTH - 3
     print()
@@ -1593,7 +1717,8 @@ MENU = [
     ("6", "مسح تطبيق", "uninstall"),
     ("7", "شعل وضع ADB (فحص كامل)", "adbsetup"),
     ("8", "طفي ADB وتصحيح الأخطاء", "adboff"),
-    ("9", "لوحة التحكم فالمتصفح 🌐", "web"),
+    ("9", "تحكم فالصوت والسماعات 🔊", "audio"),
+    ("10", "لوحة التحكم فالمتصفح 🌐", "web"),
     ("0", "خروج", "exit"),
 ]
 
@@ -1618,6 +1743,7 @@ HELP = """fahs — فحص أمان التيليفون
   fahs --apps     التطبيقات والصلاحيات
   fahs --wifi     فحص شبكة الويفي
   fahs --accounts حماية الحسابات (فحص كلمات السر)
+  fahs --audio    تحكم فالصوت والسماعات
   --no-color      بلا ألوان
   --no-adb        ما تستعملش ADB
   --setup-adb     مساعد تشغيل ADB خطوة بخطوة
@@ -1691,7 +1817,7 @@ def main():
         return
     mode = next((m for f, m in (("--full", "full"), ("--quick", "quick"),
                                 ("--apps", "apps"), ("--wifi", "wifi"),
-                                ("--accounts", "accounts"))
+                                ("--accounts", "accounts"), ("--audio", "audio"))
                  if f in sys.argv), None)
     interactive = sys.stdin.isatty() and mode is None
     if mode is None:
@@ -1704,6 +1830,9 @@ def main():
         return
     if mode == "accounts":
         check_accounts_tty()
+        return
+    if mode == "audio":
+        audio_menu()
         return
     if mode == "adbsetup":
         adb_setup()

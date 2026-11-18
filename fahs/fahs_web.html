@@ -225,6 +225,19 @@ ol.how{padding:0 20px 0 0;margin:8px 0} ol.how li{margin:6px 0}
     <div class="note">وزيد: الإعدادات ← التطبيقات ← Termux ← البطارية ← <b>السماح بالنشاط فالخلفية</b>.</div>
   </div>
   <div class="card">
+    <h2>🔊 الصوت والسماعات</h2>
+    <div class="small muted">الصوت ضعيف ولا كيخدم مزيان؟ جرب هاد الإصلاحات.</div>
+    <div id="audioVols" style="margin-top:10px"></div>
+    <button class="btn" style="margin-top:10px" onclick="audioDo('max',this)">🔊 زيد الصوت للماكس</button>
+    <div class="grid">
+      <button class="tile" onclick="audioDo('bt',this)"><div class="ic">🎧</div><b>صلح البلوتوث</b><span>صوت السماعات ضعيف</span></button>
+      <button class="tile" onclick="audioDo('center',this)"><div class="ic">⚖️</div><b>وسّط التوازن</b><span>جيهة أضعف من لوخرى</span></button>
+      <button class="tile" onclick="audioDo('mono_on',this)"><div class="ic">🔈</div><b>صوت مونو</b><span>سماعة وحدة خدامة</span></button>
+      <button class="tile" onclick="audioDo('stereo',this)"><div class="ic">🔄</div><b>رجّع ستيريو</b><span>الوضع العادي</span></button>
+    </div>
+    <div class="note" id="audioNote">إصلاح البلوتوث والتوازن والمونو محتاجين وضع ADB. بعد إصلاح البلوتوث: اقطع السماعة ووصلها من جديد.</div>
+  </div>
+  <div class="card">
     <h2>⚙️ حل الإعدادات</h2>
     <div class="grid">
       <button class="tile" onclick="openScreen('devonly')"><div class="ic">👨‍💻</div><b>خيارات المطور</b></button>
@@ -337,6 +350,7 @@ function go(v){
   for (const s of ["home","result","guard","tools","hist"]) $("v-"+s).classList.toggle("hide", s!==v);
   document.querySelectorAll("nav.bot button").forEach(b=>b.classList.toggle("on", b.dataset.v===v));
   if (v==="hist") loadHistory();
+  if (v==="tools") loadAudio();
   if (v==="guard" && $("genOut").textContent.includes("—")) genNew();
   if (v==="result" && !RESULT) $("resBody").innerHTML = `<div class="card empty"><div class="big">📋</div>مازال ما درتي حتى فحص.<br><br><button class="btn" onclick="scan('full')">ابدا فحص كامل</button></div>`;
   scrollTo({top:0});
@@ -483,6 +497,35 @@ async function adbOff(){
 async function fixBg(){
   const r = await api("/api/fix-bg", {});
   toast(r.ok ? "✅ دابا Android ما غاديش يقتل Termux" : (r.msg || "ما نجحش"));
+}
+
+/* ───── الصوت ───── */
+async function loadAudio(){
+  let a; try { a = await api("/api/audio"); } catch(e){ return; }
+  const box = $("audioVols");
+  if (a.streams && a.streams.length){
+    box.innerHTML = a.streams.filter(s=>["music","ring","notification","alarm","call"].includes(s.key)).map(s=>{
+      const pct = Math.round(100*s.vol/Math.max(1,s.max));
+      return `<div class="small" style="margin:6px 0"><div style="display:flex;justify-content:space-between"><span>${esc(s.name)}</span><span class="tiny">${s.vol}/${s.max}</span></div>
+        <div class="strength"><i style="width:${pct}%;background:var(--acc)"></i></div></div>`;
+    }).join("");
+  } else {
+    box.innerHTML = `<div class="tiny">باش تشوف مستوى الصوت: نصب Termux:API (pkg install termux-api + التطبيق).</div>`;
+  }
+  $("audioNote").classList.toggle("hide", false);
+}
+async function audioDo(action, btn){
+  if (btn) btn.disabled = true;
+  let r; try { r = await api("/api/audio/do", {action}); } catch(e){ r = {}; }
+  if (btn) btn.disabled = false;
+  if (r.ok){
+    if (action === "bt") toast("✅ تصلح البلوتوث — اقطع السماعة ووصلها من جديد");
+    else if (action === "max") toast("🔊 تزاد الصوت للماكس");
+    else toast("✅ تصلح");
+    loadAudio();
+  } else {
+    toast(r.msg || "محتاج وضع ADB لهاد الإصلاح");
+  }
 }
 
 /* ───── حماية الحسابات ───── */

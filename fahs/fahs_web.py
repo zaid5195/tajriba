@@ -240,6 +240,31 @@ def gen_pw(length, symbols, pron):
     return {"ok": True, "pw": F.gen_password(length, bool(symbols), bool(pron))}
 
 
+def audio_state():
+    st = F.audio_status()
+    out = {"adb": st["adb"], "streams": [], "bt": st.get("bt")}
+    for s in (st["termux"] or []):
+        out["streams"].append({"name": F.AUDIO_STREAMS.get(s["stream"], s["stream"]),
+                               "key": s["stream"], "vol": s["volume"], "max": s["max_volume"]})
+    out["mono"] = st.get("mono") == "1"
+    return out
+
+
+def audio_action(name):
+    if name == "max":
+        return F.audio_max()
+    if name == "bt":
+        return F.audio_bt_fix(True)
+    if name == "center":
+        return F.audio_balance_center()
+    if name == "mono_on":
+        return F.audio_mono(True)
+    if name == "stereo":
+        F.audio_mono(False)
+        return F.audio_balance_center()
+    return {"ok": False}
+
+
 def status():
     return {
         "version": F.VERSION,
@@ -357,6 +382,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/gen-pw":
             return self._json(gen_pw(body.get("length", 18),
                                      body.get("symbols", True), body.get("pron", False)))
+        if path == "/api/audio":
+            return self._json(audio_state())
+        if path == "/api/audio/do":
+            return self._json(audio_action(body.get("action", "")))
         self._json({"error": "not found"}, 404)
 
 
