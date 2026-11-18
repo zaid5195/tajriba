@@ -116,8 +116,10 @@ def setting(ns, key):
     if _settings_ok is False:
         return None
     v = run(f"settings get {ns} {key} 2>/dev/null", 10)
-    if not v or "xception" in v or "not found" in v.lower():
-        if _settings_ok is None and not v:
+    low = v.lower()
+    if (not v or "xception" in v or "not found" in low or "failure" in low
+            or "failed" in low or low.startswith("cmd:") or "error" in low):
+        if _settings_ok is None:
             _settings_ok = False
         return None
     _settings_ok = True
@@ -308,6 +310,21 @@ def check_root():
 
 
 # ───────────────────────── 3. ADB ─────────────────────────
+def listening_ports():
+    """البورتات لي فحالة LISTEN، ولا None إلا ما قدرناش نقراو."""
+    ports, ok_read = set(), False
+    for f in ("/proc/net/tcp", "/proc/net/tcp6"):
+        data = read(f)
+        if not data:
+            continue
+        ok_read = True
+        for line in data.splitlines()[1:]:
+            parts = line.split()
+            if len(parts) > 3 and parts[3] == "0A":
+                ports.add(int(parts[1].split(":")[1], 16))
+    return ports if ok_read else None
+
+
 def check_adb():
     header("3. وضع المطور و ADB")
     any_read = False
@@ -322,8 +339,19 @@ def check_adb():
         any_read = True
 
     if tcp and tcp not in ("-1", "0"):
-        bad(f"ADB عبر الشبكة شاعل على البورت {tcp}!",
-            "أي واحد معاك فنفس الويفي يقدر يتحكم فالتيليفون. طفي التيليفون وشعلو باش يتسد.")
+        ports = listening_ports()
+        try:
+            tport = int(tcp)
+        except ValueError:
+            tport = -1
+        if ports is not None and tport in ports:
+            bad(f"ADB عبر الشبكة شاعل ومفتوح دابا على البورت {tcp}!",
+                "أي واحد معاك فنفس الويفي يقدر يتحكم فالتيليفون. إلا ما نتا لي شعلتيه، طفي التيليفون وشعلو باش يتسد.")
+        elif ports is not None:
+            info(f"ADB عبر الشبكة مضبوط على البورت {tcp} ولكن ما مفتوحش دابا")
+        else:
+            warn(f"ADB عبر الشبكة مضبوط على البورت {tcp}",
+                 "إلا ما نتا لي شعلتيه، طفي التيليفون وشعلو باش يتسد.")
     if adb_wifi == "1":
         warn("Wireless Debugging شاعل",
              "طفيه من خيارات المطور إلا ما كتستعملوش.")
